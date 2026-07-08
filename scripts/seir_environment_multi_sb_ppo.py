@@ -3,6 +3,7 @@ import datetime
 import os
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv
@@ -10,6 +11,7 @@ from stable_baselines3.common.monitor import Monitor
 
 import epcontrol.census.Flux as Flux
 from epcontrol.seir_environment import Granularity, SEIREnvironment
+from epcontrol.UK_SEIR_Eames import UK
 from epcontrol.wrappers import (MultiAgentSelectAction, MultiAgentSelectObservation,
                                 MultiAgentSelectReward, NormalizedObservationWrapper,
                                 NormalizedRewardWrapper)
@@ -40,12 +42,18 @@ GRANULARITY = Granularity.WEEK
 os.makedirs(args.monitor_path, exist_ok=True)
 DISTRICTS_GROUP = ["Cornwall", "Plymouth", "Torbay", "East Devon", "Exeter", "Mid Devon",
                    "North Devon", "South Hams", "Teignbridge", "Torridge", "West Devon"]
+RHO = 1.0
+GAMMA = 1 / 1.8
+DELTA = 0.5
 
 def make_env():
     grouped_census = pd.read_csv(args.census, index_col=0)
-    env = SEIREnvironment(grouped_census=grouped_census, flux=Flux.Table(args.flux), r0=args.R0,
-                          n_weeks=N_WEEKS, step_granularity=GRANULARITY, model_seed=args.district_name,
-                          budget_per_district_in_weeks=args.budget_in_weeks)
+    fl = Flux.Table(args.flux)
+    district_names = grouped_census.index.to_list()
+    mu = np.log(args.R0) * .6
+    model = UK(DELTA, args.R0, RHO, GAMMA, district_names, grouped_census, fl, mu, sde=True)
+    env = SEIREnvironment(model=model, n_weeks=N_WEEKS, step_granularity=GRANULARITY,
+                          model_seed=args.district_name, budget_per_district_in_weeks=args.budget_in_weeks)
     ids = [env.district_idx(name) for name in DISTRICTS_GROUP]
     env = NormalizedObservationWrapper(env)
     env = NormalizedRewardWrapper(env)

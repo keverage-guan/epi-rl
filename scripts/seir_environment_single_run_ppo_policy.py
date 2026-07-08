@@ -40,16 +40,17 @@ def evaluate(env, model, num_steps):
 
 grouped_census = pd.read_csv(args.census, index_col=0).filter(items=[args.district_name], axis=0)
 fl = flux.SingleDistrictStub(args.district_name)
+district_names = grouped_census.index.to_list()
+mu = np.log(args.R0) * .6
 
-env = SEIREnvironment(grouped_census=grouped_census, flux=fl, r0=args.R0, n_weeks=N_WEEKS * 2,
+env_model = UK(.5, args.R0, 1, (1 / 1.8), district_names, grouped_census, fl, mu, sde=True)
+env = SEIREnvironment(model=env_model, n_weeks=N_WEEKS * 2,
                       step_granularity=GRANULARITY, outcome=OUTCOME,
                       model_seed=args.district_name, budget_per_district_in_weeks=args.budget_in_weeks)
 env = NormalizedObservationWrapper(env)
 env = NormalizedRewardWrapper(env)
 
 no_closures = [1] * N_WEEKS
-district_names = grouped_census.index.to_list()
-mu = np.log(args.R0) * .6
 baseline_model = UK(.5, args.R0, 1, (1 / 1.8), district_names, grouped_census, fl, mu, sde=False)
 (baseline_pd, baseline_ar, _) = run_model(baseline_model, N_WEEKS, False, args.district_name, no_closures)
 

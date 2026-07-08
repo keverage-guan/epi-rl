@@ -1,6 +1,7 @@
 import argparse
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 from stable_baselines3 import PPO
 from tqdm import tqdm
@@ -8,6 +9,7 @@ from tqdm import tqdm
 import epcontrol.census.Flux as Flux
 from epcontrol.seir_environment import Granularity, SEIREnvironment
 from epcontrol.UK_RL_school_weekly import run_model
+from epcontrol.UK_SEIR_Eames import UK
 from epcontrol.wrappers import (MultiAgentSelectAction, MultiAgentSelectObservation,
                                 NormalizedObservationWrapper, NormalizedRewardWrapper)
 
@@ -30,9 +32,12 @@ def districts_susceptibles(env, ids):
     return sum(env.unwrapped._model.total_susceptibles_district(i) for i in ids)
 
 grouped_census = pd.read_csv(args.census, index_col=0)
-base = SEIREnvironment(grouped_census=grouped_census, flux=Flux.Table(args.flux), r0=args.R0,
-                       n_weeks=N_WEEKS, step_granularity=GRANULARITY, model_seed=args.district_name,
-                       budget_per_district_in_weeks=args.budget_in_weeks)
+fl = Flux.Table(args.flux)
+district_names = grouped_census.index.to_list()
+mu = np.log(args.R0) * .6
+model = UK(.5, args.R0, 1, (1 / 1.8), district_names, grouped_census, fl, mu, sde=True)
+base = SEIREnvironment(model=model, n_weeks=N_WEEKS, step_granularity=GRANULARITY,
+                       model_seed=args.district_name, budget_per_district_in_weeks=args.budget_in_weeks)
 ids = [base.district_idx(name) for name in DISTRICTS_GROUP]
 env = NormalizedObservationWrapper(base)
 env = NormalizedRewardWrapper(env)

@@ -3,6 +3,7 @@ import datetime
 import os
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv
@@ -10,6 +11,7 @@ from stable_baselines3.common.monitor import Monitor
 
 import epcontrol.census.Flux as flux
 from epcontrol.seir_environment import Granularity, Outcome, SEIREnvironment
+from epcontrol.UK_SEIR_Eames import UK
 from epcontrol.wrappers import NormalizedObservationWrapper, NormalizedRewardWrapper
 
 parser = argparse.ArgumentParser(allow_abbrev=False)
@@ -37,11 +39,17 @@ N_WEEKS = 43
 GRANULARITY = Granularity.WEEK
 os.makedirs(args.monitor_path, exist_ok=True)
 OUTCOME = Outcome.ATTACK_RATE if args.outcome == "ar" else Outcome.PEAK_DAY
+RHO = 1.0
+GAMMA = 1 / 1.8
+DELTA = 0.5
 
 def make_env():
     grouped_census = pd.read_csv(args.census, index_col=0).filter(items=[args.district_name], axis=0)
     fl = flux.SingleDistrictStub(args.district_name)
-    env = SEIREnvironment(grouped_census=grouped_census, flux=fl, r0=args.R0, n_weeks=N_WEEKS,
+    district_names = grouped_census.index.to_list()
+    mu = np.log(args.R0) * .6
+    model = UK(DELTA, args.R0, RHO, GAMMA, district_names, grouped_census, fl, mu, sde=True)
+    env = SEIREnvironment(model=model, n_weeks=N_WEEKS,
                           step_granularity=GRANULARITY, outcome=OUTCOME,
                           model_seed=args.district_name, budget_per_district_in_weeks=args.budget_in_weeks)
     env = NormalizedObservationWrapper(env)

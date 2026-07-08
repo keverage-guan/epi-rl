@@ -9,6 +9,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### ✨ Added
+- `epcontrol/transition_model.py`: `TransitionModel`, a `runtime_checkable` `Protocol`
+  defining the contract `SEIREnvironment` requires of its simulation backend
+  (`reset`, `seed`, `step`, `total_infected`, `total_susceptibles`,
+  `total_susceptibles_district`, `district_idx`, `peak_day`, `district_names`,
+  `seir_state`). `epcontrol/UK_SEIR_Eames.py:UK` satisfies it unchanged; any other
+  simulator (e.g. a PINN with MC dropout) can be substituted as a drop-in
+  replacement for the transition function as long as it satisfies the same
+  protocol, without modifying `SEIREnvironment`.
 - `pyproject.toml`: installable package via `pip install -e .` (setuptools backend, Python ≥ 3.10).
 - `epcontrol/__init__.py`: package marker so the module is importable after `pip install -e .`.
 - `MODERNIZATION.md`: comprehensive notes on every dependency and code change made during the port.
@@ -41,6 +49,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `spaces.Box(low, high)` now explicitly sets `dtype=np.float32`.
 - `reset()` signature updated to `reset(*, seed=None, options=None)` returning `(obs, info)`.
 - `step()` now returns a 5-tuple `(obs, reward, terminated, truncated, info)` per gymnasium API.
+- **Interface refactor**: `SEIREnvironment.__init__` now takes a pre-built `model: TransitionModel`
+  instead of the raw epidemiological parameters (`grouped_census`, `flux`, `r0`, `rho`, `gamma`,
+  `delta`, `mu`, `sde`). The environment no longer constructs `UK` itself (`_make_model` removed);
+  callers construct the model and inject it. This decouples the RL pipeline from the concrete
+  transition function so it can be swapped (e.g. for a PINN) without touching this class.
+  `scripts/seir_environment_single_sb_ppo.py`, `scripts/seir_environment_single_run_ppo_policy.py`,
+  `scripts/seir_environment_multi_sb_ppo.py`, and `scripts/seir_environment_joint_run_ppo_policy.py`
+  were updated to construct `UK` directly and pass it in; behavior (default `rho=1`, `gamma=1/1.8`,
+  `delta=0.5`, `mu=log(R0)*.6`, `sde=True`) is unchanged. `legacy/` scripts were not updated, per
+  `legacy/README.md` they are already out of scope.
 
 ### ♻️ Changed — `epcontrol/wrappers.py`
 - All `gym` / `gym.spaces` imports replaced with `gymnasium` / `gymnasium.spaces`.

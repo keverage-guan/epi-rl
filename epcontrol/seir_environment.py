@@ -18,12 +18,9 @@ from enum import Enum
 from typing import Dict, Optional, Sequence, Tuple
 import numpy as np
 from gymnasium import Env, spaces
-import pandas as pd
 
-import epcontrol.census.Flux as Flux
 import epcontrol.compartments.AgeSEIR as AgeSEIR
-
-from epcontrol.UK_SEIR_Eames import UK
+from epcontrol.transition_model import TransitionModel
 
 class Granularity(Enum):
     DAY = 0
@@ -34,17 +31,18 @@ class Outcome(Enum):
     PEAK_DAY = 1
 
 class SEIREnvironment(Env):
-    """SEIR environment."""
+    """SEIR environment.
+
+    Owns episode-level concerns (budgets, observation/action spaces, reward, RNG
+    seeding) and delegates all epidemic dynamics to an injected `model` satisfying
+    epcontrol.transition_model.TransitionModel. The caller constructs and configures
+    the model (e.g. epcontrol.UK_SEIR_Eames.UK); this class does not know about its
+    epidemiological parameters, which keeps the transition function a drop-in
+    replacement point.
+    """
     def __init__(self,
-                 grouped_census: pd.DataFrame,
-                 flux: Flux,
-                 r0: float,
+                 model: TransitionModel,
                  n_weeks: int,
-                 rho: Optional[float] = 1,
-                 gamma: Optional[float] = (1 / 1.8),
-                 delta: Optional[float] = 0.5,
-                 mu: Optional[float] = None,
-                 sde: Optional[bool] = True,
                  outcome: Optional[Outcome] = Outcome.ATTACK_RATE,
                  step_granularity: Optional[Granularity] = Granularity.WEEK,
                  budget_per_district_in_weeks: Optional[int] = None,
@@ -52,22 +50,16 @@ class SEIREnvironment(Env):
                  seed: Optional[int] = None,) -> None:
         super(SEIREnvironment, self).__init__()
 
-        if mu is None:
-            mu = np.log(r0)*.6
-
         if seed is not None:
             np.random.seed(seed)
 
-        district_names = grouped_census.index.to_list()
-
         self.start_budget_per_district_in_weeks = budget_per_district_in_weeks
-        self._model_params = [delta, r0, rho, gamma, district_names, grouped_census,
-                              flux, mu, sde]
         self._model_seed = model_seed
-        self._model = self._make_model()
+        self._model = model
+        self._model.seed(self._model_seed)
         self._total_susceptibles = self._model.total_susceptibles()
 
-        self.n_districts = len(district_names)
+        self.n_districts = len(self._model.district_names)
         self.n_weeks = n_weeks
 
         budget = -1
@@ -119,12 +111,6 @@ class SEIREnvironment(Env):
         self.infected_history = np.zeros((self.n_weeks * 7) + 1)
 
         self.total_closures = 0
-
-    def _make_model(self) -> UK:
-        model = UK(*self._model_params)
-        model.seed(self._model_seed)
-        return model
-
 
     def _get_obs(self) -> np.ndarray:
         """Get an observation from the environment.
