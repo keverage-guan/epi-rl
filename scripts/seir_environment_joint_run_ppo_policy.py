@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pandas as pd
 from stable_baselines3 import PPO
+from tqdm import tqdm
 
 import epcontrol.census.Flux as Flux
 from epcontrol.seir_environment import Granularity, SEIREnvironment
@@ -41,7 +42,7 @@ env = MultiAgentSelectAction(env, ids, 1)
 def evaluate(env, model, ids, num_steps):
     obs, _ = env.reset()
     sus_before = districts_susceptibles(env, ids)
-    for _ in range(num_steps):
+    for _ in tqdm(range(num_steps), desc="  steps", unit="week", leave=False):
         action, _ = model.predict(obs, deterministic=True)
         obs, _, _, _, _ = env.step(action)
     sus_after = districts_susceptibles(env, ids)
@@ -52,6 +53,6 @@ no_closures = [1] * N_WEEKS
 
 model = PPO.load(str(args.path / "params"))
 print("ar-improvement")
-for _ in range(args.runs):
-    print(baseline_ar - evaluate(env, model, ids, N_WEEKS))
+for _ in tqdm(range(args.runs), desc="evaluation runs", unit="run"):
+    tqdm.write(str(baseline_ar - evaluate(env, model, ids, N_WEEKS)))
 env.close()

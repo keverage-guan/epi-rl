@@ -18,6 +18,7 @@ from argparse import ArgumentParser
 import itertools
 import numpy as np
 import pandas as pd
+from tqdm import tqdm
 
 import epcontrol.census.Flux as flux
 from epcontrol.UK_SEIR_Eames import UK
@@ -54,23 +55,32 @@ delta = .5
 model = UK(delta, args.R0, rho, gamma, district_names, grouped_census, flux, mu, sde=False)
 
 weekends = False
-school_combinations = [list(i) for i in itertools.product([0, 1], repeat=args.weeks)]
+school_combinations = [
+    list(i)
+    for i in tqdm(itertools.product([0, 1], repeat=args.weeks),
+                  desc="Generating combinations",
+                  unit="combo",
+                  total=2 ** args.weeks,
+                  leave=False)
+]
 school_combinations = list(filter(lambda l: l.count(0) == args.budget_weeks, school_combinations))
 
 no_closures = [1] * args.weeks
-(baseline_pd, baseline_ar) = run_model(model, args.weeks, weekends, args.district, no_closures)
+(baseline_pd, baseline_ar, _) = run_model(model, args.weeks, weekends, args.district, no_closures)
 
 #print header
 print("combination," + args.outcome + "_improvement")
 
-for c in school_combinations:
-    peak_day, attack_rate = run_model(model, args.weeks, weekends, args.district, c)
+for c in tqdm(school_combinations,
+              desc="Evaluating combinations",
+              unit="combo"):
+    peak_day, attack_rate, _ = run_model(model, args.weeks, weekends, args.district, c)
 
     peak_day_improvement = peak_day - baseline_pd
     attack_rate_improvement = baseline_ar - attack_rate
 
     c_str = "".join(map(str, c))
     if args.outcome == "pd":
-        print(c_str + "," + str(peak_day_improvement))
+        tqdm.write(c_str + "," + str(peak_day_improvement))
     elif args.outcome == "ar":
-        print(c_str + "," + str(attack_rate_improvement))
+        tqdm.write(c_str + "," + str(attack_rate_improvement))

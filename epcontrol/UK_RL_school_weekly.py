@@ -15,6 +15,7 @@
 # with this program; if not, write to pieter.libin@ai.vub.ac.be or arno.moonens@vub.be.
 
 import numpy as np
+from tqdm import tqdm
 
 def run_model(model, weeks, weekends, district, comb):
     model.reset()
@@ -36,13 +37,19 @@ def run_model(model, weeks, weekends, district, comb):
     inf = []
 
     # phase where there is control
-    for t in range(weeks * 7):
+    for t in tqdm(range(weeks * 7),
+                  desc="control phase",
+                  unit="day",
+                  leave=False):
         s_t = np.array([school_states[t]])
         model.step(t, s_t)
         inf.append(model.total_infected())
 
     # phase after the control, to verify that no second peak is caused by the control
-    for t in range(weeks * 7):
+    for t in tqdm(range(weeks * 7),
+                  desc="post-control phase",
+                  unit="day",
+                  leave=False):
         s_t = np.array([1])
         model.step(t, s_t)
         inf.append(model.total_infected())

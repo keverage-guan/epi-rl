@@ -65,6 +65,6 @@ model = PPO("MlpPolicy", venv, verbose=0, seed=args.seed,
             n_epochs=args.n_epochs, batch_size=batch_size, n_steps=args.n_steps,
             clip_range=args.clip_range, max_grad_norm=args.max_grad_norm,
             policy_kwargs=dict(net_arch=net_arch) if net_arch is not None else None)
-model.learn(total_timesteps=args.total_timesteps)
+model.learn(total_timesteps=args.total_timesteps, progress_bar=True)
 model.save(os.path.join(args.monitor_path, "params"))
 venv.close()

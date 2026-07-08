@@ -4,6 +4,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from stable_baselines3 import PPO
+from tqdm import tqdm
 
 import epcontrol.census.Flux as flux
 from epcontrol.seir_environment import Granularity, Outcome, SEIREnvironment
@@ -29,7 +30,7 @@ def evaluate(env, model, num_steps):
     _model = env.unwrapped._model
     obs, _ = env.reset()
     sus_before = _model.total_susceptibles()
-    for _ in range(num_steps):
+    for _ in tqdm(range(num_steps), desc="  steps", unit="week", leave=False):
         action, _ = model.predict(obs, deterministic=True)
         obs, _, _, _, _ = env.step(action)
     sus_after = _model.total_susceptibles()
@@ -54,10 +55,10 @@ baseline_model = UK(.5, args.R0, 1, (1 / 1.8), district_names, grouped_census, f
 
 model = PPO.load(str(args.path / "params"))
 print(args.outcome + "-improvement")
-for _ in range(args.runs):
+for _ in tqdm(range(args.runs), desc="evaluation runs", unit="run"):
     attack_rate, peak_day, _ = evaluate(env, model, N_WEEKS)
     if args.outcome == "ar":
-        print(baseline_ar - attack_rate)
+        tqdm.write(str(baseline_ar - attack_rate))
     else:
-        print(peak_day - baseline_pd)
+        tqdm.write(str(peak_day - baseline_pd))
 env.close()

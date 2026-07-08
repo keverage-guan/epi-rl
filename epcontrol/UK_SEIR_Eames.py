@@ -19,6 +19,7 @@ from typing import List, Sequence
 from numba import njit
 import numpy as np
 from scipy.signal import savgol_filter
+from tqdm import tqdm
 
 import epcontrol.compartments.AgeSEIR as AgeSEIR
 from epcontrol.compartments.contacts.Eames2012 import Eames2012, age_ranges, \
@@ -48,7 +49,11 @@ class UK:
 
         self.cms_school = np.empty((self.n_districts, self.n_age_groups, self.n_age_groups), dtype=np.float32)
         self.cms_no_school = np.empty((self.n_districts, self.n_age_groups, self.n_age_groups), dtype=np.float32)
-        for i, (_, row) in enumerate(grouped_census.iterrows()):
+        for i, (_, row) in enumerate(tqdm(grouped_census.iterrows(),
+                                          total=self.n_districts,
+                                          desc="Building contact matrices",
+                                          unit="district",
+                                          leave=False)):
             self.cms_school[i] = make_reciprocal(cm_school, row)
             self.cms_no_school[i] = make_reciprocal(cm_no_school, row)
 

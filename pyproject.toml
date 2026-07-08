@@ -18,6 +18,7 @@ dependencies = [
     "gymnasium>=0.29",
     "stable-baselines3>=2.3",
     "torch>=2.2",
+    "tqdm>=4.65",
 ]
 
 [tool.setuptools]
