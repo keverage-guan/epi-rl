@@ -1,3 +1,9 @@
+# Deep reinforcement learning for large-scale epidemic control (modernised)
+
+> This fork runs on a current stack: **gymnasium** and **stable-baselines3** (PyTorch), numpy>=1.24, numba>=0.60. See `MODERNIZATION.md` for the full list of changes. Install with `pip install -e .` The PyMARL/SMAC experiments were moved to `legacy/`.
+
+---
+
 # Deep reinforcement learning for large-scale epidemic control
 
 This repo contains code that accompanies the paper _Deep reinforcement learning for large-scale epidemic control_, that was accepted for publication at the European Conference of Machine learning (2020). In this paper, we investigate a deep reinforcement learning approach to automatically learn prevention strategies in the context of pandemic influenza.
