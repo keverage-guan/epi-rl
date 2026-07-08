@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "epcontrol"
+version = "1.0.0"
+description = "Deep reinforcement learning for large-scale epidemic control (modernised: gymnasium + stable-baselines3)"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.24,<2.1",
+    "scipy>=1.10",
+    "pandas>=2.0",
+    "numba>=0.60",
+    "matplotlib>=3.7",
+    "seaborn>=0.12",
+    "gymnasium>=0.29",
+    "stable-baselines3>=2.3",
+    "torch>=2.2",
+]
+
+[tool.setuptools]
+packages = ["epcontrol", "epcontrol.census", "epcontrol.compartments", "epcontrol.compartments.contacts"]
