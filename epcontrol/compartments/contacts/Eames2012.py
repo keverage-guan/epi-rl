@@ -37,7 +37,7 @@ def make_reciprocal(cm, census):
     return reciprocal_cm
 
 def compute_beta(R0, gamma, cm):
-    dominant = np.amax(LA.eigvals(cm))
+    dominant = np.max(np.abs(LA.eigvals(cm)))
     beta = R0 * gamma / dominant
     return beta
 
