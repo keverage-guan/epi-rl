@@ -99,7 +99,7 @@ class SEIREnvironment(Env):
         if self.start_budget_per_district_in_weeks is not None:
             max_budget = self.start_budget_per_district_in_weeks * \
                 (7 if self.step_granularity == Granularity.DAY else 1)
-            to_concat_per_agent.append([max_budget])
+            to_concat_per_agent.append(np.array([max_budget], dtype=np.float32))
         highs_per_agent = np.concatenate(to_concat_per_agent, axis=0)
         highs = np.tile(highs_per_agent, self.n_districts)
         self.observation_space = spaces.Box(low=lows.astype(np.float32), high=highs.astype(np.float32), dtype=np.float32)
@@ -108,7 +108,7 @@ class SEIREnvironment(Env):
 
         self.n_agents = self.n_districts
 
-        self.observation_space_per_agent = spaces.Box(low=np.zeros_like(highs_per_agent), high=highs_per_agent, dtype=np.float32)
+        self.observation_space_per_agent = spaces.Box(low=np.zeros_like(highs_per_agent, dtype=np.float32), high=highs_per_agent.astype(np.float32), dtype=np.float32)
 
         self.reward_range = (0, self.max_sus)
 

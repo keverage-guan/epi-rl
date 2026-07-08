@@ -206,8 +206,9 @@ class NormalizedObservationWrapper(ObservationWrapper):
             raise AssertionError(
                 "This wrapper cannot be used for observation spaces with an infinite lower/upper bound.")
         self.observation_space: Box = Box(
-            low=np.zeros(self.env.observation_space.shape),
-            high=np.ones(self.env.observation_space.shape)
+            low=np.zeros(self.env.observation_space.shape, dtype=np.float32),
+            high=np.ones(self.env.observation_space.shape, dtype=np.float32),
+            dtype=np.float32,
         )
 
     def observation(self, observation: np.ndarray) -> np.ndarray:

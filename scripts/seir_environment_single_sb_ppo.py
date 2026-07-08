@@ -55,7 +55,7 @@ layers = [args.n_hidden_units] * args.n_hidden_layers
 net_arch = layers if layers else None
 batch_size = max(1, args.n_steps // args.n_minibatches)
 
-model = PPO("MlpPolicy", venv, verbose=0, seed=args.seed,
+model = PPO("MlpPolicy", venv, verbose=0, seed=args.seed, device="cpu",
             ent_coef=args.entropy_coef, learning_rate=args.learning_rate,
             n_epochs=args.n_epochs, batch_size=batch_size, n_steps=args.n_steps,
             clip_range=args.clip_range, max_grad_norm=args.max_grad_norm,

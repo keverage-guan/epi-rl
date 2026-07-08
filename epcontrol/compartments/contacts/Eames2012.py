@@ -29,6 +29,7 @@ def read_contact_matrix(fn):
     return np.genfromtxt(fn, delimiter=',', dtype=np.float32)
 
 def make_reciprocal(cm, census):
+    census = np.asarray(census, dtype=np.float64)
     dim = cm.shape[0]
     reciprocal_cm = np.empty((dim, dim))
     for i in range(dim):
