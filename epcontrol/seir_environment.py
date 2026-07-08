@@ -17,7 +17,7 @@
 from enum import Enum
 from typing import Dict, Optional, Sequence, Tuple
 import numpy as np
-from gym import Env, spaces
+from gymnasium import Env, spaces
 import pandas as pd
 
 import epcontrol.census.Flux as Flux
@@ -89,7 +89,7 @@ class SEIREnvironment(Env):
 
         self.max_sus = np.max(self._model.seir_state[:, AgeSEIR.Compartment.S.value, :])
 
-        seir_values_per_agent = np.product(self._model.seir_state.shape[1:])
+        seir_values_per_agent = np.prod(self._model.seir_state.shape[1:])
 
         lows = np.zeros((seir_values_per_agent * self.n_districts + \
             (self.n_districts if self.start_budget_per_district_in_weeks is not None else 0),))
@@ -102,15 +102,13 @@ class SEIREnvironment(Env):
             to_concat_per_agent.append([max_budget])
         highs_per_agent = np.concatenate(to_concat_per_agent, axis=0)
         highs = np.tile(highs_per_agent, self.n_districts)
-        self.observation_space = spaces.Box(low=lows,
-                                            high=highs)
+        self.observation_space = spaces.Box(low=lows.astype(np.float32), high=highs.astype(np.float32), dtype=np.float32)
         # Action can only be 0 or 1 for every district, i.e. close or open schools in that district
         self.action_space = spaces.MultiBinary(self.n_districts)
 
         self.n_agents = self.n_districts
 
-        self.observation_space_per_agent = spaces.Box(low=np.zeros_like(highs_per_agent),
-                                                      high=highs_per_agent)
+        self.observation_space_per_agent = spaces.Box(low=np.zeros_like(highs_per_agent), high=highs_per_agent, dtype=np.float32)
 
         self.reward_range = (0, self.max_sus)
 
@@ -144,7 +142,10 @@ class SEIREnvironment(Env):
     def district_idx(self, district_name: str) -> int:
         return self._model.district_idx(district_name)
 
-    def reset(self) -> np.ndarray:
+    def reset(self, *, seed=None, options=None):
+        super().reset(seed=seed)
+        if seed is not None:
+            np.random.seed(seed)
         self._current_day = 0
         self.budgets.fill(self.start_budget)
         self._model.reset()
@@ -152,7 +153,7 @@ class SEIREnvironment(Env):
         self._total_susceptibles = self._model.total_susceptibles()
         self.infected_history = np.zeros((self.n_weeks * 7) + 1)
         self.total_closures = 0
-        return self._get_obs()
+        return self._get_obs(), {}
 
     def _weekend(self, week_day):
         return week_day in (5, 6)
@@ -164,7 +165,7 @@ class SEIREnvironment(Env):
             self._model.step(self._current_day, school_states)
 
     def _reduce_budget(self, school_states):
-        self.budgets -= np.invert(school_states.astype(np.bool))
+        self.budgets -= np.invert(school_states.astype(bool))
 
     def step(self, action: Sequence[int]) -> Tuple[np.ndarray, float, bool, Dict]:
         school_states = np.array(action, copy=True)
@@ -212,7 +213,7 @@ class SEIREnvironment(Env):
 
         self._total_susceptibles = current_susceptibles
 
-        return self._get_obs(), reward, done, {}
+        return self._get_obs(), reward, done, False, {}
 
     def render(self, mode="human"):
         pass

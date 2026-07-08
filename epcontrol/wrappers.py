@@ -16,8 +16,8 @@
 
 import random
 from typing import Sequence
-from gym import ActionWrapper, ObservationWrapper, RewardWrapper, Wrapper
-from gym.spaces import Box, Discrete, MultiBinary
+from gymnasium import ActionWrapper, ObservationWrapper, RewardWrapper, Wrapper
+from gymnasium.spaces import Box, Discrete, MultiBinary
 import numpy as np
 
 import epcontrol.compartments.AgeSEIR as AgeSEIR
@@ -116,16 +116,16 @@ class MultiAgentSelectReward(Wrapper):
         return np.sum(self.env.unwrapped._model.seir_state[self.districts_ids, AgeSEIR.Compartment.S.value, :])
 
     def reset(self, **kwargs):
-        s = self.env.reset(**kwargs)
+        s, info = self.env.reset(**kwargs)
         self.districts_susceptibles = self._get_districts_susceptibles()
-        return s
+        return s, info
 
     def step(self, action):
-        observation, _, done, info = self.env.step(action)
+        observation, _, terminated, truncated, info = self.env.step(action)
         current_districts_susceptibles = self._get_districts_susceptibles()
         reward = (current_districts_susceptibles - self.districts_susceptibles) / self.max_districts_susceptibles
         self.districts_susceptibles = current_districts_susceptibles
-        return observation, reward, done, info
+        return observation, reward, terminated, truncated, info
 
 
 class SingleAgentReward(MultiAgentSelectReward):
@@ -160,10 +160,10 @@ class MAACWrapper(Wrapper):
 
     def step(self, action):
         action = np.nonzero(np.asarray(action))[1] # Convert back from Discrete to MultiBinary per agent
-        s, rew, done, info = self.env.step(action)
+        s, rew, terminated, truncated, info = self.env.step(action)
 
         #each agent receives the global reward (cooperative setting)
-        return s, [rew] * self.n, [done] * self.n, info
+        return s, [rew] * self.n, [terminated] * self.n, [truncated] * self.n, info
 
 """
 Source for following code: https://github.com/arnomoonens/yarll
@@ -222,8 +222,11 @@ class NormalizedRewardWrapper(RewardWrapper):
 
     def __init__(self, env, low=None, high=None):
         super(NormalizedRewardWrapper, self).__init__(env)
-        self.low = low if low is not None else self.env.reward_range[0]
-        self.high = high if high is not None else self.env.reward_range[1]
+        rr = getattr(self.env, "reward_range", None)
+        if rr is None:
+            rr = getattr(self.env.unwrapped, "reward_range", (0.0, 1.0))
+        self.low = low if low is not None else rr[0]
+        self.high = high if high is not None else rr[1]
         self.reward_range = (0.0, 1.0)
 
     def reward(self, rew):
