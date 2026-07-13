@@ -16,6 +16,7 @@
 
 from argparse import ArgumentParser
 import itertools
+import math
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
@@ -55,15 +56,19 @@ delta = .5
 model = UK(delta, args.R0, rho, gamma, district_names, grouped_census, flux, mu, sde=False)
 
 weekends = False
-school_combinations = [
-    list(i)
-    for i in tqdm(itertools.product([0, 1], repeat=args.weeks),
-                  desc="Generating combinations",
-                  unit="combo",
-                  total=2 ** args.weeks,
-                  leave=False)
-]
-school_combinations = list(filter(lambda l: l.count(0) == args.budget_weeks, school_combinations))
+# enumerate directly which weeks are closed, instead of generating all 2**weeks binary
+# strings and filtering: C(weeks, budget_weeks) is much smaller than 2**weeks
+n_combinations = math.comb(args.weeks, args.budget_weeks)
+school_combinations = []
+for closed_weeks in tqdm(itertools.combinations(range(args.weeks), args.budget_weeks),
+                         desc="Generating combinations",
+                         unit="combo",
+                         total=n_combinations,
+                         leave=False):
+    combo = [1] * args.weeks
+    for w in closed_weeks:
+        combo[w] = 0
+    school_combinations.append(combo)
 
 no_closures = [1] * args.weeks
 (baseline_pd, baseline_ar, _) = run_model(model, args.weeks, weekends, args.district, no_closures)
