@@ -14,7 +14,66 @@
 # You should have received a copy of the GNU General Public License along
 # with this program; if not, write to pieter.libin@ai.vub.ac.be or arno.moonens@vub.be.
 
+from typing import Callable, Optional
+
+import gymnasium
+import numpy as np
 from stable_baselines3.common.callbacks import BaseCallback
+
+
+def probe_returns(env_factory: Callable[[], gymnasium.Env],
+                   policy,
+                   n_probe_episodes: int,
+                   deterministic: bool = True) -> np.ndarray:
+    # total episode return of policy over n_probe_episodes independent stochastic rollouts
+    returns = np.empty(n_probe_episodes)
+    for i in range(n_probe_episodes):
+        env = env_factory()
+        obs, _ = env.reset()
+        done = False
+        episode_return = 0.0
+        while not done:
+            action, _ = policy.predict(obs, deterministic=deterministic)
+            obs, reward, terminated, truncated, _ = env.step(action)
+            episode_return += reward
+            done = terminated or truncated
+        env.close()
+        returns[i] = episode_return
+    return returns
+
+
+class RiskShapingCallback(BaseCallback):
+    """Re-estimates nu (VaR_alpha of probe returns) each rollout and pushes it to the
+    training envs."""
+
+    def __init__(self,
+                 env_factory: Callable[[], gymnasium.Env],
+                 gamma: float,
+                 alpha: float = 0.2,
+                 n_probe_episodes: int = 8,
+                 beta: float = 0.0,
+                 epistemic_std_estimator: Optional[Callable[[], float]] = None,
+                 verbose: int = 0):
+        super(RiskShapingCallback, self).__init__(verbose)
+        self.env_factory = env_factory
+        self.gamma = gamma
+        self.alpha = alpha
+        self.n_probe_episodes = n_probe_episodes
+        self.beta = beta
+        self.epistemic_std_estimator = epistemic_std_estimator
+
+    def _on_rollout_start(self) -> None:
+        returns = probe_returns(self.env_factory, self.model, self.n_probe_episodes)
+        nu = float(np.quantile(returns, self.alpha))
+        epistemic_std = self.epistemic_std_estimator() if self.epistemic_std_estimator else 0.0
+        self.training_env.env_method("set_risk_params", self.gamma, nu, self.beta * epistemic_std)
+        self.logger.record("risk/nu_var_alpha", nu)
+        self.logger.record("risk/probe_return_mean", float(returns.mean()))
+        self.logger.record("risk/probe_return_std", float(returns.std()))
+        self.logger.record("risk/epistemic_std", epistemic_std)
+
+    def _on_step(self) -> bool:
+        return True
 
 
 class AlphaAnnealingCallback(BaseCallback):

@@ -21,6 +21,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `scripts/seir_environment_joint_run_ppo_policy.py` now reports
   `worst-district-ar-improvement` next to the existing aggregate `ar-improvement`, so `mean`-
   and `cvar`-trained policies can be compared on both metrics.
+- `epcontrol/risk.py:probe_returns` and `RiskShapingCallback`, `epcontrol/wrappers.py:RiskShapedReward`:
+  single-district risk-shaped PPO. Before each rollout, `RiskShapingCallback` probes the
+  current policy over independent stochastic episodes and estimates `nu`, the empirical
+  `alpha`-quantile of episode returns; `RiskShapedReward` then subtracts
+  `gamma*max(0, nu-episode_return)/alpha` from the terminal reward, so episodes at or above
+  `nu` are unpenalized and episodes below it are penalized in proportion to their shortfall.
+  Demonstrated in `scripts/seir_environment_single_risk_ppo.py` (`--gamma_risk`, `--alpha`,
+  `--n_probe_episodes`).
 - `epcontrol/transition_model.py`: `TransitionModel`, a `runtime_checkable` `Protocol`
   defining the contract `SEIREnvironment` requires of its simulation backend
   (`reset`, `seed`, `step`, `total_infected`, `total_susceptibles`,

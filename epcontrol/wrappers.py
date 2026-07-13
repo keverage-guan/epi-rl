@@ -179,6 +179,40 @@ class MultiAgentCVaRReward(Wrapper):
         return observation, reward, terminated, truncated, info
 
 
+class RiskShapedReward(Wrapper):
+    """Subtracts gamma*max(0, nu-episode_return)/alpha from the terminal reward of each
+    episode. gamma and nu are set externally, once per PPO rollout, by
+    epcontrol.risk.RiskShapingCallback via set_risk_params.
+    """
+
+    def __init__(self, env, alpha: float = 0.2):
+        super(RiskShapedReward, self).__init__(env)
+        assert 0 < alpha <= 1
+        self.alpha = alpha
+        self.gamma = 0.0
+        self.nu = 0.0
+        self.epistemic_penalty = 0.0
+        self._episode_return = 0.0
+
+    def set_risk_params(self, gamma: float, nu: float, epistemic_penalty: float = 0.0) -> None:
+        self.gamma = gamma
+        self.nu = nu
+        self.epistemic_penalty = epistemic_penalty
+
+    def reset(self, **kwargs):
+        self._episode_return = 0.0
+        return self.env.reset(**kwargs)
+
+    def step(self, action):
+        observation, reward, terminated, truncated, info = self.env.step(action)
+        self._episode_return += reward
+        if terminated or truncated:
+            shortfall = max(0.0, self.nu - self._episode_return)
+            penalty = self.gamma * shortfall / self.alpha + self.epistemic_penalty
+            reward = reward - penalty
+        return observation, reward, terminated, truncated, info
+
+
 class Agent:
     def __init__(self, district, total_susceptibles):
         self.district = district
