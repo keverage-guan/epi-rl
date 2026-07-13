@@ -34,6 +34,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   a training pool) instead of resetting the injected `model` in place, enabling ensemble
   training over a pool of transition models. `model` is still required in this case to size
   the observation/reward-normalization bounds.
+- `scripts/seir_environment_ensemble_risk_ppo.py`: trains single-district PPO (plain or
+  CVaR risk-shaped, via the same `--gamma_risk` mechanism) over a pool of districts of
+  similar population instead of one fixed district, drawing a new district each episode
+  through `model_factory`. `scripts/seir_environment_ensemble_run_ppo_policy.py` evaluates
+  a trained policy on a given list of districts (e.g. a held-out pool never seen during
+  training), reporting per-district `ar-improvement`.
 - `epcontrol/transition_model.py`: `TransitionModel`, a `runtime_checkable` `Protocol`
   defining the contract `SEIREnvironment` requires of its simulation backend
   (`reset`, `seed`, `step`, `total_infected`, `total_susceptibles`,
