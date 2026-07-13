@@ -55,6 +55,9 @@ baseline_model = UK(.5, args.R0, 1, (1 / 1.8), district_names, grouped_census, f
 (baseline_pd, baseline_ar, _) = run_model(baseline_model, N_WEEKS, False, args.district_name, no_closures)
 
 model = PPO.load(str(args.path / "params"))
+# PPO.load() reseeds numpy's global RNG to the training seed; reseed from OS entropy
+# so the runs below are independent
+np.random.seed(None)
 print(args.outcome + "-improvement")
 for _ in tqdm(range(args.runs), desc="evaluation runs", unit="run"):
     attack_rate, peak_day, _ = evaluate(env, model, N_WEEKS)
