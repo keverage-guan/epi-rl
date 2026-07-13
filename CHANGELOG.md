@@ -29,6 +29,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `nu` are unpenalized and episodes below it are penalized in proportion to their shortfall.
   Demonstrated in `scripts/seir_environment_single_risk_ppo.py` (`--gamma_risk`, `--alpha`,
   `--n_probe_episodes`).
+- `epcontrol/seir_environment.py`: `SEIREnvironment` accepts an optional `model_factory`.
+  When given, every `reset()` builds a fresh model from it (e.g. a new district drawn from
+  a training pool) instead of resetting the injected `model` in place, enabling ensemble
+  training over a pool of transition models. `model` is still required in this case to size
+  the observation/reward-normalization bounds.
 - `epcontrol/transition_model.py`: `TransitionModel`, a `runtime_checkable` `Protocol`
   defining the contract `SEIREnvironment` requires of its simulation backend
   (`reset`, `seed`, `step`, `total_infected`, `total_susceptibles`,

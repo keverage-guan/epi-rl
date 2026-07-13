@@ -20,36 +20,21 @@ import numpy as np
 
 @runtime_checkable
 class TransitionModel(Protocol):
-    """Contract that SEIREnvironment requires of its simulation backend.
+    """Contract that SEIREnvironment requires of its simulation backend."""
 
-    epcontrol.UK_SEIR_Eames.UK (age-structured SEIR with Euler-Maruyama SDE sampling)
-    is the current implementation. Any other simulator, e.g. a PINN trained with MC
-    dropout in place of SDE sampling, can be substituted as a drop-in replacement for
-    SEIREnvironment as long as it satisfies this protocol, so that the transition
-    function and the RL pipeline (environment, PPO, evaluation) can be developed and
-    swapped independently.
-
-    Compartment ordering in `seir_state` must follow
-    epcontrol.compartments.AgeSEIR.Compartment (S, E, I, R); the age axis must follow
-    epcontrol.compartments.contacts.Eames2012.
-    """
-
-    #: names of the districts/patches, in the same order as the district axis of `seir_state`
+    # names of the districts/patches, same order as the district axis of seir_state
     district_names: List[str]
 
-    #: shape (n_districts, n_compartments, n_age_groups)
+    # shape (n_districts, n_compartments, n_age_groups)
     seir_state: np.ndarray
 
     def reset(self) -> None:
-        """Reset all districts to their initial (disease-free) state."""
         ...
 
     def seed(self, region: str) -> None:
-        """Mark `region` as the district where the epidemic is seeded."""
         ...
 
     def step(self, t: int, actions: Sequence[int]) -> None:
-        """Advance the model by one day given the per-district action for day `t`."""
         ...
 
     def total_infected(self) -> float:

@@ -15,7 +15,7 @@
 # with this program; if not, write to pieter.libin@ai.vub.ac.be or arno.moonens@vub.be.
 
 from enum import Enum
-from typing import Dict, Optional, Sequence, Tuple
+from typing import Callable, Dict, Optional, Sequence, Tuple
 import numpy as np
 from gymnasium import Env, spaces
 
@@ -33,12 +33,9 @@ class Outcome(Enum):
 class SEIREnvironment(Env):
     """SEIR environment.
 
-    Owns episode-level concerns (budgets, observation/action spaces, reward, RNG
-    seeding) and delegates all epidemic dynamics to an injected `model` satisfying
-    epcontrol.transition_model.TransitionModel. The caller constructs and configures
-    the model (e.g. epcontrol.UK_SEIR_Eames.UK); this class does not know about its
-    epidemiological parameters, which keeps the transition function a drop-in
-    replacement point.
+    If model_factory is given, every reset() builds a fresh model from it (e.g. a new
+    district) instead of resetting the injected model in place; model still sizes the
+    observation/reward bounds, so pass the largest-population model in that case.
     """
     def __init__(self,
                  model: TransitionModel,
@@ -47,6 +44,7 @@ class SEIREnvironment(Env):
                  step_granularity: Optional[Granularity] = Granularity.WEEK,
                  budget_per_district_in_weeks: Optional[int] = None,
                  model_seed: Optional[str] = "Greenwich",
+                 model_factory: Optional[Callable[[], TransitionModel]] = None,
                  seed: Optional[int] = None,) -> None:
         super(SEIREnvironment, self).__init__()
 
@@ -55,6 +53,7 @@ class SEIREnvironment(Env):
 
         self.start_budget_per_district_in_weeks = budget_per_district_in_weeks
         self._model_seed = model_seed
+        self._model_factory = model_factory
         self._model = model
         self._model.seed(self._model_seed)
         self._total_susceptibles = self._model.total_susceptibles()
@@ -134,8 +133,12 @@ class SEIREnvironment(Env):
             np.random.seed(seed)
         self._current_day = 0
         self.budgets.fill(self.start_budget)
-        self._model.reset()
-        self._model.seed(self._model_seed)
+        if self._model_factory is not None:
+            self._model = self._model_factory()
+            self._model.seed(self._model.district_names[0])
+        else:
+            self._model.reset()
+            self._model.seed(self._model_seed)
         self._total_susceptibles = self._model.total_susceptibles()
         self.infected_history = np.zeros((self.n_weeks * 7) + 1)
         self.total_closures = 0
