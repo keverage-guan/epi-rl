@@ -135,6 +135,50 @@ class SingleAgentReward(MultiAgentSelectReward):
         super(SingleAgentReward, self).__init__(env, [district_id])
 
 
+class MultiAgentCVaRReward(Wrapper):
+    """Reward = mean of the worst `alpha` fraction of districts' susceptible loss, each
+    normalized by the same max_districts_susceptibles constant MultiAgentSelectReward uses.
+    At alpha=1 this equals MultiAgentSelectReward's reward divided by the number of districts.
+    """
+
+    def __init__(self, env, districts_ids: Sequence[int], alpha: float = 0.2):
+        super(MultiAgentCVaRReward, self).__init__(env)
+        self.districts_ids = np.asarray(districts_ids)
+        self.max_districts_susceptibles = self._get_max_districts_susceptibles()
+        self.districts_susceptibles = self._get_districts_susceptibles()
+        self.set_alpha(alpha)
+
+    def set_alpha(self, alpha: float) -> None:
+        assert 0 < alpha <= 1
+        self.alpha = alpha
+        self.n_worst = max(1, int(np.ceil(alpha * len(self.districts_ids))))
+
+    def _get_max_districts_susceptibles(self) -> float:
+        return np.max(
+            self.env.unwrapped._model.seir_state[self.districts_ids, AgeSEIR.Compartment.S.value, :])
+
+    def _get_districts_susceptibles(self) -> np.ndarray:
+        return np.sum(
+            self.env.unwrapped._model.seir_state[self.districts_ids, AgeSEIR.Compartment.S.value, :],
+            axis=1)
+
+    def reset(self, **kwargs):
+        s, info = self.env.reset(**kwargs)
+        self.max_districts_susceptibles = self._get_max_districts_susceptibles()
+        self.districts_susceptibles = self._get_districts_susceptibles()
+        return s, info
+
+    def step(self, action):
+        observation, _, terminated, truncated, info = self.env.step(action)
+        current_districts_susceptibles = self._get_districts_susceptibles()
+        per_district_reward = (current_districts_susceptibles - self.districts_susceptibles) \
+            / self.max_districts_susceptibles
+        worst = np.sort(per_district_reward)[:self.n_worst]
+        reward = float(np.mean(worst))
+        self.districts_susceptibles = current_districts_susceptibles
+        return observation, reward, terminated, truncated, info
+
+
 class Agent:
     def __init__(self, district, total_susceptibles):
         self.district = district

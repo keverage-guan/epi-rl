@@ -6,15 +6,18 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from stable_baselines3 import PPO
+from stable_baselines3.common.callbacks import CallbackList
 from stable_baselines3.common.vec_env import DummyVecEnv
 from stable_baselines3.common.monitor import Monitor
 
 import epcontrol.census.Flux as Flux
+from epcontrol.progress import ProgressLoggingCallback
+from epcontrol.risk import AlphaAnnealingCallback
 from epcontrol.seir_environment import Granularity, SEIREnvironment
 from epcontrol.UK_SEIR_Eames import UK
-from epcontrol.wrappers import (MultiAgentSelectAction, MultiAgentSelectObservation,
-                                MultiAgentSelectReward, NormalizedObservationWrapper,
-                                NormalizedRewardWrapper)
+from epcontrol.wrappers import (MultiAgentCVaRReward, MultiAgentSelectAction,
+                                MultiAgentSelectObservation, MultiAgentSelectReward,
+                                NormalizedObservationWrapper, NormalizedRewardWrapper)
 
 parser = argparse.ArgumentParser(allow_abbrev=False)
 parser.add_argument("--district_name", required=True)
@@ -35,6 +38,15 @@ parser.add_argument("--max_grad_norm", type=float, default=0.5)
 parser.add_argument("--clip_range", type=float, default=0.2)
 parser.add_argument("--total_timesteps", type=int, required=True)
 parser.add_argument("--seed", type=int, default=0)
+parser.add_argument("--reward_mode", choices=["mean", "cvar"], default="mean",
+                    help="'mean' rewards the aggregate outcome across districts. 'cvar' rewards "
+                         "the mean outcome of the worst cvar_alpha fraction of districts.")
+parser.add_argument("--cvar_alpha", type=float, default=0.2,
+                    help="Fraction of worst-performing districts averaged for the cvar reward_mode.")
+parser.add_argument("--cvar_alpha_start", type=float, default=1.0,
+                    help="cvar reward_mode: alpha at the start of training (1.0 = full aggregate).")
+parser.add_argument("--cvar_anneal_fraction", type=float, default=0.5,
+                    help="cvar reward_mode: fraction of total_timesteps to anneal alpha over.")
 args = parser.parse_args()
 
 N_WEEKS = 43
@@ -59,7 +71,10 @@ def make_env():
     env = NormalizedRewardWrapper(env)
     env = MultiAgentSelectObservation(env, ids)
     env = MultiAgentSelectAction(env, ids, 1)
-    env = MultiAgentSelectReward(env, ids)
+    if args.reward_mode == "cvar":
+        env = MultiAgentCVaRReward(env, ids, alpha=args.cvar_alpha_start)
+    else:
+        env = MultiAgentSelectReward(env, ids)
     env = Monitor(env, filename=os.path.join(args.monitor_path, "monitor"))
     return env
 
@@ -73,6 +88,12 @@ model = PPO("MlpPolicy", venv, verbose=0, seed=args.seed, device="cpu",
             n_epochs=args.n_epochs, batch_size=batch_size, n_steps=args.n_steps,
             clip_range=args.clip_range, max_grad_norm=args.max_grad_norm,
             policy_kwargs=dict(net_arch=net_arch) if net_arch is not None else None)
-model.learn(total_timesteps=args.total_timesteps, progress_bar=True)
+callbacks = [ProgressLoggingCallback(total_timesteps=args.total_timesteps)]
+if args.reward_mode == "cvar":
+    callbacks.append(AlphaAnnealingCallback(total_timesteps=args.total_timesteps,
+                                            alpha_start=args.cvar_alpha_start,
+                                            alpha_end=args.cvar_alpha,
+                                            anneal_fraction=args.cvar_anneal_fraction))
+model.learn(total_timesteps=args.total_timesteps, progress_bar=False, callback=CallbackList(callbacks))
 model.save(os.path.join(args.monitor_path, "params"))
 venv.close()

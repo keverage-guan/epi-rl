@@ -9,6 +9,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### ✨ Added
+- `epcontrol/wrappers.py`: `MultiAgentCVaRReward`, a multi-district reward wrapper that
+  returns the mean of the worst `alpha` fraction of districts' susceptible loss (each
+  normalized by the same `max_districts_susceptibles` constant `MultiAgentSelectReward`
+  uses, so terms are on a comparable scale) instead of the aggregate outcome across all
+  districts. `epcontrol/risk.py:AlphaAnnealingCallback` linearly anneals `alpha` from 1.0
+  (full aggregate, same objective as `mean`) down to a target value over training, so the
+  harder tail-only objective only kicks in once the policy already has a baseline of
+  competence. Wired into `scripts/seir_environment_multi_sb_ppo.py` via
+  `--reward_mode {mean,cvar}`, `--cvar_alpha`, `--cvar_alpha_start`, `--cvar_anneal_fraction`.
+  `scripts/seir_environment_joint_run_ppo_policy.py` now reports
+  `worst-district-ar-improvement` next to the existing aggregate `ar-improvement`, so `mean`-
+  and `cvar`-trained policies can be compared on both metrics.
 - `epcontrol/transition_model.py`: `TransitionModel`, a `runtime_checkable` `Protocol`
   defining the contract `SEIREnvironment` requires of its simulation backend
   (`reset`, `seed`, `step`, `total_infected`, `total_susceptibles`,

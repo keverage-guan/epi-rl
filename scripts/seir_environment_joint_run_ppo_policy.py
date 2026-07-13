@@ -28,8 +28,8 @@ DISTRICTS_GROUP = ["Cornwall", "Plymouth", "Torbay", "East Devon", "Exeter", "Mi
 N_WEEKS = 43
 GRANULARITY = Granularity.WEEK
 
-def districts_susceptibles(env, ids):
-    return sum(env.unwrapped._model.total_susceptibles_district(i) for i in ids)
+def districts_susceptibles_per(env, ids):
+    return np.array([env.unwrapped._model.total_susceptibles_district(i) for i in ids])
 
 grouped_census = pd.read_csv(args.census, index_col=0)
 fl = Flux.Table(args.flux)
@@ -45,19 +45,29 @@ env = MultiAgentSelectObservation(env, ids)
 env = MultiAgentSelectAction(env, ids, 1)
 
 def evaluate(env, model, ids, num_steps):
+    """Return (aggregate attack rate, worst single district's attack rate)."""
     obs, _ = env.reset()
-    sus_before = districts_susceptibles(env, ids)
+    sus_before = districts_susceptibles_per(env, ids)
     for _ in tqdm(range(num_steps), desc="  steps", unit="week", leave=False):
         action, _ = model.predict(obs, deterministic=True)
         obs, _, _, _, _ = env.step(action)
-    sus_after = districts_susceptibles(env, ids)
-    return 1.0 - (sus_after / sus_before)
+    sus_after = districts_susceptibles_per(env, ids)
+    per_district_ar = 1.0 - (sus_after / sus_before)
+    ar = 1.0 - (sus_after.sum() / sus_before.sum())
+    return ar, per_district_ar.max()
 
 no_closures = [1] * N_WEEKS
+baseline_sus_before = districts_susceptibles_per(env, ids)
 (_, baseline_ar, _) = run_model(env.unwrapped._model, N_WEEKS, False, args.district_name, no_closures)
+baseline_sus_after = districts_susceptibles_per(env, ids)
+baseline_worst_district_ar = (1.0 - (baseline_sus_after / baseline_sus_before)).max()
 
 model = PPO.load(str(args.path / "params"))
-print("ar-improvement")
+# PPO.load() reseeds numpy's global RNG to the training seed; reseed from OS entropy
+# so the runs below are independent
+np.random.seed(None)
+print("ar-improvement,worst-district-ar-improvement")
 for _ in tqdm(range(args.runs), desc="evaluation runs", unit="run"):
-    tqdm.write(str(baseline_ar - evaluate(env, model, ids, N_WEEKS)))
+    ar, worst_district_ar = evaluate(env, model, ids, N_WEEKS)
+    tqdm.write(f"{baseline_ar - ar},{baseline_worst_district_ar - worst_district_ar}")
 env.close()
