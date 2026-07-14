@@ -1,0 +1,379 @@
+district	nation
+Hartlepool	England
+Middlesbrough	England
+Redcar and Cleveland	England
+Stockton-on-Tees	England
+Darlington	England
+County Durham	England
+Northumberland	England
+Gateshead	England
+Newcastle upon Tyne	England
+North Tyneside	England
+South Tyneside	England
+Sunderland	England
+Halton	England
+Warrington	England
+Blackburn with Darwen	England
+Blackpool	England
+Cheshire East	England
+Cheshire West and Chester	England
+Allerdale	England
+Barrow-in-Furness	England
+Carlisle	England
+Copeland	England
+Eden	England
+South Lakeland	England
+Burnley	England
+Chorley	England
+Fylde	England
+Hyndburn	England
+Lancaster	England
+Pendle	England
+Preston	England
+Ribble Valley	England
+Rossendale	England
+South Ribble	England
+West Lancashire	England
+Wyre	England
+Bolton	England
+Bury	England
+Manchester	England
+Oldham	England
+Rochdale	England
+Salford	England
+Stockport	England
+Tameside	England
+Trafford	England
+Wigan	England
+Knowsley	England
+Liverpool	England
+St Helens	England
+Sefton	England
+Wirral	England
+Kingston upon Hull, City of	England
+East Riding of Yorkshire	England
+North East Lincolnshire	England
+North Lincolnshire	England
+York	England
+Craven	England
+Hambleton	England
+Harrogate	England
+Richmondshire	England
+Ryedale	England
+Scarborough	England
+Selby	England
+Barnsley	England
+Doncaster	England
+Rotherham	England
+Sheffield	England
+Bradford	England
+Calderdale	England
+Kirklees	England
+Leeds	England
+Wakefield	England
+Derby	England
+Leicester	England
+Rutland	England
+Nottingham	England
+Amber Valley	England
+Bolsover	England
+Chesterfield	England
+Derbyshire Dales	England
+Erewash	England
+High Peak	England
+North East Derbyshire	England
+South Derbyshire	England
+Blaby	England
+Charnwood	England
+Harborough	England
+Hinckley and Bosworth	England
+Melton	England
+North West Leicestershire	England
+Oadby and Wigston	England
+Boston	England
+East Lindsey	England
+Lincoln	England
+North Kesteven	England
+South Holland	England
+South Kesteven	England
+West Lindsey	England
+Corby	England
+Daventry	England
+East Northamptonshire	England
+Kettering	England
+Northampton	England
+South Northamptonshire	England
+Wellingborough	England
+Ashfield	England
+Bassetlaw	England
+Broxtowe	England
+Gedling	England
+Mansfield	England
+Newark and Sherwood	England
+Rushcliffe	England
+Herefordshire, County of	England
+Telford and Wrekin	England
+Stoke-on-Trent	England
+Shropshire	England
+Cannock Chase	England
+East Staffordshire	England
+Lichfield	England
+Newcastle-under-Lyme	England
+South Staffordshire	England
+Stafford	England
+Staffordshire Moorlands	England
+Tamworth	England
+North Warwickshire	England
+Nuneaton and Bedworth	England
+Rugby	England
+Stratford-on-Avon	England
+Warwick	England
+Bromsgrove	England
+Malvern Hills	England
+Redditch	England
+Worcester	England
+Wychavon	England
+Wyre Forest	England
+Birmingham	England
+Coventry	England
+Dudley	England
+Sandwell	England
+Solihull	England
+Walsall	England
+Wolverhampton	England
+Peterborough	England
+Luton	England
+Southend-on-Sea	England
+Thurrock	England
+Bedford	England
+Central Bedfordshire	England
+Cambridge	England
+East Cambridgeshire	England
+Fenland	England
+Huntingdonshire	England
+South Cambridgeshire	England
+Basildon	England
+Braintree	England
+Brentwood	England
+Castle Point	England
+Chelmsford	England
+Colchester	England
+Epping Forest	England
+Harlow	England
+Maldon	England
+Rochford	England
+Tendring	England
+Uttlesford	England
+Broxbourne	England
+Dacorum	England
+East Hertfordshire	England
+Hertsmere	England
+North Hertfordshire	England
+St Albans	England
+Stevenage	England
+Three Rivers	England
+Watford	England
+Welwyn Hatfield	England
+Breckland	England
+Broadland	England
+Great Yarmouth	England
+King's Lynn and West Norfolk	England
+North Norfolk	England
+Norwich	England
+South Norfolk	England
+Babergh	England
+Forest Heath	England
+Ipswich	England
+Mid Suffolk	England
+St Edmundsbury	England
+Suffolk Coastal	England
+Waveney	England
+Barking and Dagenham	England
+Barnet	England
+Bexley	England
+Brent	England
+Bromley	England
+Camden	England
+Croydon	England
+Ealing	England
+Enfield	England
+Greenwich	England
+Hackney	England
+Hammersmith and Fulham	England
+Haringey	England
+Harrow	England
+Havering	England
+Hillingdon	England
+Hounslow	England
+Islington	England
+Kensington and Chelsea	England
+Kingston upon Thames	England
+Lambeth	England
+Lewisham	England
+Merton	England
+Newham	England
+Redbridge	England
+Richmond upon Thames	England
+Southwark	England
+Sutton	England
+Tower Hamlets	England
+Waltham Forest	England
+Wandsworth	England
+Westminster+City of London	England
+Medway	England
+Bracknell Forest	England
+West Berkshire	England
+Reading	England
+Slough	England
+Windsor and Maidenhead	England
+Wokingham	England
+Milton Keynes	England
+Brighton and Hove	England
+Portsmouth	England
+Southampton	England
+Isle of Wight	England
+Aylesbury Vale	England
+Chiltern	England
+South Bucks	England
+Wycombe	England
+Eastbourne	England
+Hastings	England
+Lewes	England
+Rother	England
+Wealden	England
+Basingstoke and Deane	England
+East Hampshire	England
+Eastleigh	England
+Fareham	England
+Gosport	England
+Hart	England
+Havant	England
+New Forest	England
+Rushmoor	England
+Test Valley	England
+Winchester	England
+Ashford	England
+Canterbury	England
+Dartford	England
+Dover	England
+Gravesham	England
+Maidstone	England
+Sevenoaks	England
+Folkestone and Hythe	England
+Swale	England
+Thanet	England
+Tonbridge and Malling	England
+Tunbridge Wells	England
+Cherwell	England
+Oxford	England
+South Oxfordshire	England
+Vale of White Horse	England
+West Oxfordshire	England
+Elmbridge	England
+Epsom and Ewell	England
+Guildford	England
+Mole Valley	England
+Reigate and Banstead	England
+Runnymede	England
+Spelthorne	England
+Surrey Heath	England
+Tandridge	England
+Waverley	England
+Woking	England
+Adur	England
+Arun	England
+Chichester	England
+Crawley	England
+Horsham	England
+Mid Sussex	England
+Worthing	England
+Bath and North East Somerset	England
+Bristol, City of	England
+Cornwall	England
+Wiltshire	England
+North Somerset	England
+South Gloucestershire	England
+Plymouth	England
+Torbay	England
+Bournemouth	England
+Poole	England
+Swindon	England
+East Devon	England
+Exeter	England
+Mid Devon	England
+North Devon	England
+South Hams	England
+Teignbridge	England
+Torridge	England
+West Devon	England
+Christchurch	England
+East Dorset	England
+North Dorset	England
+Purbeck	England
+West Dorset	England
+Weymouth and Portland	England
+Cheltenham	England
+Cotswold	England
+Forest of Dean	England
+Gloucester	England
+Stroud	England
+Tewkesbury	England
+Mendip	England
+Sedgemoor	England
+South Somerset	England
+Taunton Deane	England
+West Somerset	England
+Isle of Anglesey	Wales
+Gwynedd	Wales
+Conwy	Wales
+Denbighshire	Wales
+Flintshire	Wales
+Wrexham	Wales
+Ceredigion	Wales
+Pembrokeshire	Wales
+Carmarthenshire	Wales
+Swansea	Wales
+Neath Port Talbot	Wales
+Bridgend	Wales
+The Vale of Glamorgan	Wales
+Cardiff	Wales
+Rhondda Cynon Taf	Wales
+Caerphilly	Wales
+Blaenau Gwent	Wales
+Torfaen	Wales
+Monmouthshire	Wales
+Newport	Wales
+Powys	Wales
+Merthyr Tydfil	Wales
+Clackmannanshire	Scotland
+Dumfries and Galloway	Scotland
+East Ayrshire	Scotland
+East Lothian	Scotland
+East Renfrewshire	Scotland
+Na h-Eileanan Siar	Scotland
+Falkirk	Scotland
+Fife	Scotland
+Highland	Scotland
+Inverclyde	Scotland
+Midlothian	Scotland
+Moray	Scotland
+North Ayrshire	Scotland
+Orkney Islands	Scotland
+Perth and Kinross	Scotland
+Scottish Borders	Scotland
+Shetland Islands	Scotland
+South Ayrshire	Scotland
+South Lanarkshire	Scotland
+Stirling	Scotland
+Aberdeen City	Scotland
+Aberdeenshire	Scotland
+Argyll and Bute	Scotland
+City of Edinburgh	Scotland
+Renfrewshire	Scotland
+West Dunbartonshire	Scotland
+West Lothian	Scotland
+Angus	Scotland
+Dundee City	Scotland
+North Lanarkshire	Scotland
+East Dunbartonshire	Scotland
+Glasgow City	Scotland
