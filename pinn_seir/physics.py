@@ -1,0 +1,183 @@
+"""Vectorised SEIR meta-population physics in PyTorch.
+
+Everything here operates on batched states of shape (B, P, A) and returns residuals
+in the same shape (or scalars). Rates are per DAY; the network's time coordinate is
+in WEEKS, so the caller multiplies autodiff time-derivatives by ``days_per_week`` to
+convert d/d(week) into d/d(day) before forming residuals.
+
+Residuals are expressed in FRACTIONS of N so that every compartment is O(1); this is
+the single most important numerical detail for a usable fit.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+import torch
+
+
+@dataclass
+class PhysicsConstants:
+    """Device-resident fixed tensors + scalar rates for the residual computation."""
+
+    N: torch.Tensor             # (P, A) population
+    cms_school: torch.Tensor    # (P, A, A)
+    cms_holiday: torch.Tensor   # (P, A, A)
+    M_AA_school: torch.Tensor   # (P,)
+    flux_Tij: torch.Tensor      # (P, P), Tij[i,j] = flux i->j
+    ngm_radius: torch.Tensor    # (P,)
+    zeta: float                 # latency rate  (per day)
+    gamma: float                # recovery rate (per day)
+    adult_index: int
+    days_per_week: float
+
+    @property
+    def N_adult(self) -> torch.Tensor:
+        return self.N[:, self.adult_index]  # (P,)
+
+
+def beta_per_patch(consts: PhysicsConstants, r0: torch.Tensor) -> torch.Tensor:
+    """Per-district beta from a shared scalar R0 via the next-generation matrix.
+
+    beta_p = R0 * gamma / rho(reciprocal school contact matrix of patch p).
+    Mirrors ``Eames2012.compute_beta`` but keeps R0 differentiable.
+    """
+    return r0 * consts.gamma / consts.ngm_radius  # (P,)
+
+
+def contact_matrices(consts: PhysicsConstants, closure: torch.Tensor) -> torch.Tensor:
+    """Select each patch's contact matrix from its closure state.
+
+    closure: (B, P) in {0,1}, 1 = schools OPEN (term), 0 = CLOSED (holiday).
+    Returns (B, P, A, A). No smoothing of the control -- the switch is genuine.
+    """
+    c = closure.unsqueeze(-1).unsqueeze(-1)  # (B, P, 1, 1)
+    school = consts.cms_school.unsqueeze(0)   # (1, P, A, A)
+    holiday = consts.cms_holiday.unsqueeze(0)
+    return c * school + (1.0 - c) * holiday   # (B, P, A, A)
+
+
+def force_of_infection(
+    consts: PhysicsConstants,
+    beta_p: torch.Tensor,   # (P,)
+    M: torch.Tensor,        # (B, P, A, A) per-patch contact matrix for this week
+    I: torch.Tensor,        # (B, P, A) infected counts
+) -> torch.Tensor:
+    """phi_{p,i} = beta_p * sum_j M_{p,ij} * I_{p,j} / N_{p,j}. Returns (B, P, A)."""
+    rel_I = I / consts.N.unsqueeze(0)                      # (B, P, A) = I/N
+    # (B,P,A,A) @ (B,P,A,1) -> (B,P,A,1)
+    mixed = torch.matmul(M, rel_I.unsqueeze(-1)).squeeze(-1)  # (B, P, A)
+    return beta_p.view(1, -1, 1) * mixed                  # (B, P, A)
+
+
+def meanfield_inflow(
+    consts: PhysicsConstants,
+    beta_p: torch.Tensor,   # (P,)
+    mu: torch.Tensor,       # scalar in (0,1)
+    kappa: torch.Tensor,    # scalar
+    S: torch.Tensor,        # (B, P, A) susceptibles
+    I: torch.Tensor,        # (B, P, A) infected
+) -> torch.Tensor:
+    """Deterministic mean-field analogue of the Poisson inter-patch ignition term.
+
+    Lambda_{p,A} = kappa * beta_p * (S^A_p)^mu * M_AA * sum_{p'!=p} T_{p'p} * I^A_{p'}/N^A_{p'}
+    and zero for non-adult age groups. Returns (B, P, A).
+
+    The flux enters as the column toward the receiving patch p (T_{p'p}), matching the
+    reference implementation's ``flux_k = flux_tij[:, target]`` convention.
+    """
+    adult = consts.adult_index
+    S_adult = S[:, :, adult]                              # (B, P)
+    I_adult = I[:, :, adult]                              # (B, P)
+    rel_I_adult = I_adult / consts.N_adult.unsqueeze(0)   # (B, P)
+
+    # sum over sources p': (B, P') @ (P', P) -> (B, P), with self-flux removed.
+    flux = consts.flux_Tij.clone()
+    flux.fill_diagonal_(0.0)                              # exclude p' == p
+    inflow_sum = torch.matmul(rel_I_adult, flux)          # (B, P): sum_{p'} T_{p'p} rel_I_{p'}
+
+    lam_adult = (
+        kappa
+        * beta_p.view(1, -1)
+        * torch.pow(S_adult.clamp_min(0.0), mu)
+        * consts.M_AA_school.view(1, -1)
+        * inflow_sum
+    )                                                     # (B, P)
+
+    lam = torch.zeros_like(S)                             # (B, P, A)
+    lam[:, :, adult] = lam_adult
+    return lam
+
+
+def seir_residuals(
+    consts: PhysicsConstants,
+    state: torch.Tensor,        # (B, P, A, 4) counts
+    dstate_dt_week: torch.Tensor,  # (B, P, A, 4) d/d(week) from autodiff
+    beta_p: torch.Tensor,       # (P,)
+    mu: torch.Tensor,
+    kappa: torch.Tensor,
+    closure: torch.Tensor,      # (B, P)
+) -> torch.Tensor:
+    """Return the four SEIR residuals stacked as (B, P, A, 4), in fractions of N.
+
+    d/d(day) = days_per_week * d/d(week). All physics rates are per day.
+    """
+    S, E, I, R = (state[..., k] for k in range(4))
+    dS = dstate_dt_week[..., 0] * consts.days_per_week
+    dE = dstate_dt_week[..., 1] * consts.days_per_week
+    dI = dstate_dt_week[..., 2] * consts.days_per_week
+    dR = dstate_dt_week[..., 3] * consts.days_per_week
+
+    M = contact_matrices(consts, closure)                # (B, P, A, A)
+    phi = force_of_infection(consts, beta_p, M, I)       # (B, P, A)
+    lam = meanfield_inflow(consts, beta_p, mu, kappa, S, I)  # (B, P, A)
+
+    # Reference ODE (Eq. 1) with mean-field inflow Lambda entering S (out) and E (in):
+    #   dS/dt = -phi S            - Lambda
+    #   dE/dt =  phi S - zeta E   + Lambda
+    #   dI/dt =  zeta E - gamma I
+    #   dR/dt =  gamma I
+    r_S = dS + phi * S + lam
+    r_E = dE - phi * S + consts.zeta * E - lam
+    r_I = dI - consts.zeta * E + consts.gamma * I
+    r_R = dR - consts.gamma * I
+
+    res = torch.stack([r_S, r_E, r_I, r_R], dim=-1)      # (B, P, A, 4)
+    # Normalise to fractions of N so each compartment residual is O(1).
+    return res / consts.N.unsqueeze(0).unsqueeze(-1)
+
+
+def nation_weekly_incidence(
+    consts: PhysicsConstants,
+    E_week: torch.Tensor,       # (n_weeks, P, A) exposed at collocation nodes over the week
+    tau_nodes: torch.Tensor,    # (n_weeks, n_nodes) local-time nodes used for the week
+    membership: torch.Tensor,   # (R, P)
+    nation_population: torch.Tensor,  # (R,)
+    alpha: torch.Tensor,        # scalar ascertainment
+    observation_scale: float,
+) -> torch.Tensor:
+    """Model-predicted weekly ILI *incidence* per 100k, per nation.
+
+    New symptomatic infections in week k = alpha * integral_0^1 zeta * E(tau) dtau,
+    summed over patch & age, aggregated to nations, converted to a per-100k rate.
+
+    E_week and tau_nodes are expected pre-shaped as (n_weeks, n_nodes, P, A) and
+    (n_weeks, n_nodes); the trapezoid integral is taken over the node axis.
+    """
+    # zeta * E gives the instantaneous E->I flux (new infections) per day.
+    flux = consts.zeta * E_week                          # (weeks, nodes, P, A)
+    per_patch_flux = flux.sum(dim=-1)                    # (weeks, nodes, P): sum over age
+
+    # Integrate over the week in DAYS: dt_day = days_per_week * dtau.
+    weekly = torch.trapezoid(per_patch_flux, x=tau_nodes.unsqueeze(-1), dim=1)
+    weekly = weekly * consts.days_per_week               # (weeks, P) new infections/week
+
+    # Aggregate patches -> nations, scale by ascertainment, convert to per-100k rate.
+    nation_counts = torch.matmul(weekly, membership.t())  # (weeks, R)
+    rate = (
+        alpha
+        * observation_scale
+        * nation_counts
+        / nation_population.unsqueeze(0)
+    )                                                    # (weeks, R)
+    return rate.t()                                      # (R, weeks)

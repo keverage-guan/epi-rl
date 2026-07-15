@@ -1,0 +1,25 @@
+Defaulting to user installation because normal site-packages is not writeable
+Collecting gym[atari,classic_control]
+  Downloading gym-0.26.2.tar.gz (721 kB)
+  Installing build dependencies: started
+  Installing build dependencies: finished with status 'done'
+  Getting requirements to build wheel: started
+  Getting requirements to build wheel: finished with status 'done'
+  Preparing metadata (pyproject.toml): started
+  Preparing metadata (pyproject.toml): finished with status 'done'
+Requirement already satisfied: gym_notices>=0.0.4 in /home/kg8941/.local/lib/python3.9/site-packages (from gym[atari,classic_control]) (0.1.0)
+Requirement already satisfied: cloudpickle>=1.2.0 in /home/kg8941/.local/lib/python3.9/site-packages (from gym[atari,classic_control]) (3.1.2)
+Requirement already satisfied: numpy>=1.18.0 in /home/kg8941/.local/lib/python3.9/site-packages (from gym[atari,classic_control]) (2.0.2)
+Requirement already satisfied: importlib_metadata>=4.8.0 in /home/kg8941/.local/lib/python3.9/site-packages (from gym[atari,classic_control]) (8.7.1)
+Requirement already satisfied: ale-py~=0.8.0 in /home/kg8941/.local/lib/python3.9/site-packages (from gym[atari,classic_control]) (0.8.1)
+Requirement already satisfied: typing-extensions in /home/kg8941/.local/lib/python3.9/site-packages (from ale-py~=0.8.0->gym[atari,classic_control]) (4.15.0)
+Requirement already satisfied: importlib-resources in /home/kg8941/.local/lib/python3.9/site-packages (from ale-py~=0.8.0->gym[atari,classic_control]) (6.5.2)
+Requirement already satisfied: zipp>=3.20 in /home/kg8941/.local/lib/python3.9/site-packages (from importlib_metadata>=4.8.0->gym[atari,classic_control]) (3.23.1)
+Building wheels for collected packages: gym
+  Building wheel for gym (pyproject.toml): started
+  Building wheel for gym (pyproject.toml): finished with status 'done'
+  Created wheel for gym: filename=gym-0.26.2-py3-none-any.whl size=827726 sha256=e81111f926d06c1bcb8f6d3bd349a4a7c6ba2b26c1d4ad9f1963b534822164f9
+  Stored in directory: /home/kg8941/.cache/pip/wheels/af/2b/30/5e78b8b9599f2a2286a582b8da80594f654bf0e18d825a4405
+Successfully built gym
+Installing collected packages: gym
+Successfully installed gym-0.26.2
