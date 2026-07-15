@@ -64,6 +64,7 @@ class EpiData:
 
     district_names: List[str]            # length P, canonical ordering
     nation_names: List[str]              # length R (e.g. ["England","Scotland","Wales"])
+    district_nations: List[str]          # length P, nation of each district (patch order)
     N: np.ndarray                        # (P, A) population by district and age group
     cms_school: np.ndarray               # (P, A, A) reciprocal term-time contact matrices
     cms_holiday: np.ndarray              # (P, A, A) reciprocal holiday contact matrices
@@ -154,6 +155,8 @@ def load_epi_data(cfg: ModelConfig) -> EpiData:
     membership = np.zeros((len(nation_names), n_patches), dtype=np.float64)
     for d, r in nation_of.items():
         membership[r_index[r], p_index[d]] = 1.0
+    # Nation of each district, in patch order (for the per-patch daily calendar).
+    district_nations = [nation_of[d] for d in district_names]
 
     nation_population = membership @ census.sum(axis=1)  # (R,) total pop per nation
 
@@ -170,6 +173,7 @@ def load_epi_data(cfg: ModelConfig) -> EpiData:
     return EpiData(
         district_names=district_names,
         nation_names=nation_names,
+        district_nations=district_nations,
         N=census.astype(np.float64),
         cms_school=cms_school,
         cms_holiday=cms_holiday,

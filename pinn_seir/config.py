@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 
 # --------------------------------------------------------------------------- #
@@ -67,16 +67,38 @@ class ModelConfig:
     seed_exposed_count: float = 2.0
     epidemic_start: str = "2009-04-27"  # ISO date; defines the model week grid
 
-    # ---- school-holiday calendar (schools CLOSED during these inclusive ranges)
-    # Each entry is (start_date, end_date) inclusive, ISO format. A model week is
-    # counted as a holiday week if it overlaps any range (see schedules.py).
-    holiday_ranges: List[Tuple[str, str]] = field(
-        default_factory=lambda: [
-            ("2009-07-03", "2009-08-16"),  # summer
-            ("2009-10-12", "2009-10-23"),  # autumn half-term
-            ("2009-12-23", "2010-01-06"),  # christmas
-            ("2010-03-29", "2010-04-09"),  # spring
-        ]
+    # ---- fixed historical school calendar, PER NATION (daily) ------------- #
+    # Inclusive holiday date ranges keyed by nation. Each district inherits its
+    # nation's calendar via the district->nation crosswalk (§1). A day is "term-time"
+    # for a district iff it falls in none of its nation's ranges. This is separate
+    # from POLICY closure (the weekly, per-patch RL action): schools are open in a
+    # district on a day iff (term-time that day for its nation) AND (not policy-closed
+    # that week in that district). See schedules.py.
+    holiday_ranges_by_nation: Dict[str, List[Tuple[str, str]]] = field(
+        default_factory=lambda: {
+            "Scotland": [
+                ("2009-07-03", "2009-08-16"),  # summer
+                ("2009-10-12", "2009-10-23"),  # autumn
+                ("2009-12-23", "2010-01-06"),  # christmas
+                ("2010-03-29", "2010-04-09"),  # spring
+            ],
+            "England": [
+                ("2009-07-21", "2009-09-02"),  # summer
+                ("2009-10-26", "2009-11-01"),  # autumn half-term
+                ("2009-12-19", "2010-01-03"),  # christmas
+                ("2010-02-13", "2010-02-21"),  # february half-term
+                ("2010-04-02", "2010-04-18"),  # spring
+                ("2010-05-29", "2010-06-06"),  # may half-term
+            ],
+            "Wales": [
+                ("2009-07-21", "2009-09-02"),  # summer
+                ("2009-10-26", "2009-11-01"),  # autumn half-term
+                ("2009-12-19", "2010-01-03"),  # christmas
+                ("2010-02-13", "2010-02-21"),  # february half-term
+                ("2010-04-02", "2010-04-18"),  # spring
+                ("2010-05-29", "2010-06-06"),  # may half-term
+            ],
+        }
     )
 
     # ---- district subset (None => use every district in the census) ------- #

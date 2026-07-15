@@ -13,7 +13,7 @@ Usage
         --commute    data/great_brittain/commute.csv \
         --crosswalk  data/great_brittain/crosswalk.tsv \
         --contacts   data/contacts \
-        --flu        data/epidemic/uk_flu_per_100000.csv \
+        --flu        data/uk_flu_per_100000.csv \
         --out        outputs/seir_pinn \
         --dates
 """
@@ -49,6 +49,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--out", type=Path, default=Path("outputs/seir_pinn"))
     p.add_argument("--dates", action="store_true", help="label x-axis with calendar dates")
     p.add_argument("--no-holidays", action="store_true", help="do not shade holidays")
+    p.add_argument("--samples-per-day", type=int, default=2,
+                   help="network evaluations per day for the daily prediction curve")
     return p.parse_args()
 
 
@@ -74,11 +76,14 @@ def main() -> None:
     print(f"  loaded checkpoint: R0={trainer.r0.item():.4f} mu={trainer.mu.item():.4f} "
           f"kappa={trainer.kappa.item():.4f} alpha={trainer.alpha.item():.4f}")
 
-    pred = trainer.predict_nation_incidence()   # (R, n_weeks) under the true calendar
-    obs = data.y_obs                            # (R, n_obs)
+    # Daily-resolution prediction curve (per 100k per day) + weekly observations.
+    t_days, pred_daily = trainer.predict_nation_incidence_daily(
+        samples_per_day=args.samples_per_day
+    )                                            # t_days in week units, pred_daily (R, n_days)
+    obs = data.y_obs                             # (R, n_obs) weekly rate per 100k
     obs_weeks = data.obs_week_index             # (n_obs,) model-week index per observation
 
-    _plot(data, pred, obs, obs_weeks, mcfg, args)
+    _plot(data, t_days, pred_daily, obs, obs_weeks, mcfg, args)
 
 
 def _week_to_date(week_idx, epidemic_start: str):
@@ -86,9 +91,12 @@ def _week_to_date(week_idx, epidemic_start: str):
     return [start + timedelta(days=7 * float(k)) for k in week_idx]
 
 
-def _shade_holidays(ax, mcfg, use_dates: bool) -> None:
-    """Shade each school-holiday span; label only the first for a single legend entry."""
-    spans = holiday_week_spans(mcfg.epidemic_start, mcfg.holiday_ranges)
+def _shade_holidays(ax, mcfg, use_dates: bool, nation: str) -> None:
+    """Shade a nation's school-holiday spans; label only the first for one legend entry."""
+    ranges = mcfg.holiday_ranges_by_nation.get(nation, [])
+    if not ranges:
+        return
+    spans = holiday_week_spans(mcfg.epidemic_start, ranges)
     start = datetime.strptime(mcfg.epidemic_start, "%Y-%m-%d").date()
     for i, (w0, w1) in enumerate(spans):
         if use_dates:
@@ -102,16 +110,20 @@ def _shade_holidays(ax, mcfg, use_dates: bool) -> None:
         )
 
 
-def _plot(data, pred, obs, obs_weeks, mcfg, args) -> None:
+def _plot(data, t_days, pred_daily, obs, obs_weeks, mcfg, args) -> None:
     R = data.n_nations
-    all_weeks = np.arange(pred.shape[1])
+    dpw = float(mcfg.days_per_week)
+
+    # pred_daily is per-100k-per-DAY; observations are per-100k-per-WEEK. Scale the
+    # daily curve to weekly-equivalent units (x7) so both share one y-axis.
+    pred_weekly_equiv = pred_daily * dpw
 
     if args.dates:
-        x_pred = _week_to_date(all_weeks, mcfg.epidemic_start)
+        x_pred = _week_to_date(t_days, mcfg.epidemic_start)
         x_obs = _week_to_date(obs_weeks, mcfg.epidemic_start)
-        xlabel = "week ending"
+        xlabel = "date"
     else:
-        x_pred = all_weeks
+        x_pred = t_days
         x_obs = obs_weeks
         xlabel = "model week"
 
@@ -121,9 +133,10 @@ def _plot(data, pred, obs, obs_weeks, mcfg, args) -> None:
 
     for r, ax in enumerate(axes):
         if not args.no_holidays:
-            _shade_holidays(ax, mcfg, args.dates)
-        ax.plot(x_pred, pred[r], lw=2, color="C0", label="PINN prediction")
-        ax.scatter(x_obs, obs[r], s=22, color="k", zorder=3, label="observed ILI")
+            _shade_holidays(ax, mcfg, args.dates, data.nation_names[r])
+        ax.plot(x_pred, pred_weekly_equiv[r], lw=1.5, color="C0",
+                label="PINN (daily)")
+        ax.scatter(x_obs, obs[r], s=22, color="k", zorder=3, label="observed ILI (weekly)")
         ax.set_title(data.nation_names[r])
         ax.set_xlabel(xlabel)
         ax.set_ylabel("ILI per 100k / week")

@@ -23,8 +23,6 @@ pinn_seir/
   plot_fit.py    CLI: reload a checkpoint -> PINN vs. observed data, holidays shaded
 ```
 
-Drop `pinn_seir/` next to the existing `epcontrol/` package.
-
 ## Install
 
 ```
@@ -72,9 +70,13 @@ python -m pinn_seir.plot_fit \
 ```
 
 Pass `--dates` for a calendar x-axis (else model-week index) and `--no-holidays` to
-disable the shaded holiday bands. Checkpoints record their network architecture, so
-`plot_fit` rebuilds a matching network automatically; checkpoints saved before this
-feature load correctly as long as the default architecture is used.
+disable the shaded holiday bands. The prediction line is rendered at **daily**
+resolution (`--samples-per-day`, default 2) even though the observations are weekly:
+the daily incidence-rate curve is scaled to weekly-equivalent units so it overlays the
+weekly data points directly, and integrating it over any 7-day window recovers the
+weekly value. Checkpoints record their network architecture, so `plot_fit` rebuilds a
+matching network automatically; checkpoints saved before this feature load correctly as
+long as the default architecture is used.
 
 ## Design decisions (and where they live)
 
@@ -94,6 +96,21 @@ feature load correctly as long as the default architecture is used.
   (local time τ + a learned week embedding + the closure vector as inputs); adjacent
   weeks are coupled by an **overlapping-strip junction loss** (`model.loss_junction`,
   `overlap_delta ≈ 0.12`). The control itself is never smoothed.
+- **Fixed calendar vs. controllable policy (split control).** The single closure state
+  is split into two sources: a **fixed historical calendar** at *daily* resolution
+  (`schedules.DailyCalendar`) and a **weekly, per-patch policy closure** (the RL action,
+  sampled by `schedules.ScheduleSampler`). The calendar is **per patch**: holiday date
+  ranges are configured *per nation* (`ModelConfig.holiday_ranges_by_nation`, e.g.
+  Scotland vs. England/Wales, which differ in 2009-10), and each district inherits its
+  nation's calendar via the crosswalk (`EpiData.district_nations`). Schools are open in
+  a district on a day iff `term-time(day, that district's nation) AND NOT
+  policy-closed(week, that district)`; this effective-open state is computed per
+  collocation point, per patch, and selects the contact matrix (`model.loss_physics`,
+  `physics.contact_matrices`). Only the *policy* is a network input, so the surrogate
+  still generalises across the per-district RL action space; the calendar is a fixed
+  lookup. A mid-week calendar switch is the *same* network call on both sides, so
+  state-continuity there is automatic and no extra junction is needed; junctions remain
+  only at week boundaries.
 - **Mean-field inter-patch coupling.** The stochastic Poisson ignition (their Eq. 4–5)
   is replaced by its deterministic mean-field analogue: a continuous adult-only inflow
   `Λ_{p,A} = κ·β_p·(S^A_p)^μ·M_AA·Σ_{p'≠p} T_{p'p}·I^A_{p'}/N^A_{p'}`
@@ -111,13 +128,14 @@ feature load correctly as long as the default architecture is used.
 
 ## Calendar and observation alignment
 
-- The true school calendar is built from **real holiday date ranges** in
-  `ModelConfig.holiday_ranges` (summer, autumn, christmas, spring), not a hard-coded
-  week window (`schedules.holiday_calendar`). Model week `k` spans
-  `[epidemic_start + 7k, epidemic_start + 7(k+1))`; a week is CLOSED when at least
-  `overlap_threshold` (default 0.5) of its days fall in a holiday range. Lower the
-  threshold toward 0 to close any week that touches a holiday; raise it to 1.0 to close
-  only fully-enclosed weeks.
+- The historical school calendar is applied at **daily, per-patch** resolution
+  (`schedules.DailyCalendar`) from per-nation holiday ranges in
+  `ModelConfig.holiday_ranges_by_nation`. Scotland and England/Wales have different
+  2009-10 calendars; each district inherits its nation's ranges via the crosswalk. A day
+  is term-time for a district iff it falls in none of its nation's ranges; the
+  term/holiday switch can occur mid-week and is resolved exactly per day (no weekly
+  threshold). Plot holiday bands are shaded per nation (`plot_fit`), each using that
+  nation's ranges via `schedules.holiday_week_spans`.
 - Observations are aligned to model weeks by their **`week_end_date`** column (M/D/Y),
   not by row order: a row ending on date `d` maps to week `floor((d - epidemic_start)/7)`.
   Rows before week 0 or beyond the horizon are dropped, and the series is sorted by

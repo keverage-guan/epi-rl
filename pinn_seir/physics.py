@@ -45,13 +45,15 @@ def beta_per_patch(consts: PhysicsConstants, r0: torch.Tensor) -> torch.Tensor:
     return r0 * consts.gamma / consts.ngm_radius  # (P,)
 
 
-def contact_matrices(consts: PhysicsConstants, closure: torch.Tensor) -> torch.Tensor:
-    """Select each patch's contact matrix from its closure state.
+def contact_matrices(consts: PhysicsConstants, effective_open: torch.Tensor) -> torch.Tensor:
+    """Select each patch's contact matrix from its EFFECTIVE open state.
 
-    closure: (B, P) in {0,1}, 1 = schools OPEN (term), 0 = CLOSED (holiday).
-    Returns (B, P, A, A). No smoothing of the control -- the switch is genuine.
+    effective_open: (B, P) in {0,1}, 1 = schools open (term-time AND not policy-closed),
+    0 = schools closed (holiday OR policy-closed). Returns (B, P, A, A). No smoothing of
+    the control -- the switch is genuine. The caller forms effective_open by combining
+    the fixed daily calendar (term-time) with the weekly policy closure.
     """
-    c = closure.unsqueeze(-1).unsqueeze(-1)  # (B, P, 1, 1)
+    c = effective_open.unsqueeze(-1).unsqueeze(-1)  # (B, P, 1, 1)
     school = consts.cms_school.unsqueeze(0)   # (1, P, A, A)
     holiday = consts.cms_holiday.unsqueeze(0)
     return c * school + (1.0 - c) * holiday   # (B, P, A, A)
@@ -116,7 +118,7 @@ def seir_residuals(
     beta_p: torch.Tensor,       # (P,)
     mu: torch.Tensor,
     kappa: torch.Tensor,
-    closure: torch.Tensor,      # (B, P)
+    effective_open: torch.Tensor,  # (B, P) 1 = schools open (term AND not policy-closed)
 ) -> torch.Tensor:
     """Return the four SEIR residuals stacked as (B, P, A, 4), in fractions of N.
 
@@ -128,7 +130,7 @@ def seir_residuals(
     dI = dstate_dt_week[..., 2] * consts.days_per_week
     dR = dstate_dt_week[..., 3] * consts.days_per_week
 
-    M = contact_matrices(consts, closure)                # (B, P, A, A)
+    M = contact_matrices(consts, effective_open)         # (B, P, A, A)
     phi = force_of_infection(consts, beta_p, M, I)       # (B, P, A)
     lam = meanfield_inflow(consts, beta_p, mu, kappa, S, I)  # (B, P, A)
 

@@ -30,7 +30,7 @@ from .physics import (
     nation_weekly_incidence,
     seir_residuals,
 )
-from .schedules import ScheduleSampler
+from .schedules import ScheduleSampler, DailyCalendar
 
 
 def _junction_weight(tau_rel: torch.Tensor, kind: str, delta: float) -> torch.Tensor:
@@ -109,18 +109,39 @@ class PINNTrainer:
         self.raw_kappa = self._make_param(mcfg.kappa_init, mcfg.train_kappa, positive=True)
         self.raw_alpha = self._make_param(mcfg.alpha_init, mcfg.train_alpha, unit=True)
 
-        # ---- schedule sampler + IC targets -------------------------------- #
+        # ---- schedule sampler (weekly POLICY) + fixed daily calendar ------- #
         self.sampler = ScheduleSampler(
             n_weeks=mcfg.n_weeks,
             n_patches=P,
             budget_weeks=tcfg.budget_weeks,
-            epidemic_start=mcfg.epidemic_start,
-            holiday_ranges=mcfg.holiday_ranges,
             include_all_open=tcfg.include_all_open,
             include_all_closed=tcfg.include_all_closed,
             seed=tcfg.seed,
         )
+        # Fixed historical school calendar at daily resolution, PER PATCH.
+        self.calendar = DailyCalendar(
+            epidemic_start=mcfg.epidemic_start,
+            holiday_ranges_by_nation=mcfg.holiday_ranges_by_nation,
+            district_nations=data.district_nations,
+            n_weeks=mcfg.n_weeks,
+            days_per_week=int(mcfg.days_per_week),
+        )
+        # Device tensor of the per-patch term-time table: (P, n_weeks, days_per_week)
+        self.calendar_table = torch.as_tensor(
+            self.calendar.table, dtype=self.dtype, device=self.device
+        )
         self._build_ic_targets()
+
+    def _term_time(self, tau: torch.Tensor, week: torch.Tensor) -> torch.Tensor:
+        """Per-patch term-time (1/0) for each (tau, week); returns (B, P).
+
+        Day within week = floor(tau * days_per_week); indexes the precomputed
+        per-patch table (P, n_weeks, days_per_week).
+        """
+        dpw = self.calendar_table.shape[-1]
+        day = torch.clamp((tau.squeeze(-1) * dpw).floor().long(), 0, dpw - 1)  # (B,)
+        term = self.calendar_table[:, week, day]                              # (P, B)
+        return term.t()                                                        # (B, P)
 
     # ------------------------------------------------------------------ #
     # parameter transforms
@@ -247,10 +268,14 @@ class PINNTrainer:
             weeks = torch.repeat_interleave(
                 torch.arange(n_weeks, device=self.device), nc
             )
-            closure = schedules[s][weeks]                    # (n_weeks*nc, P)
-            state, dstate = self._time_derivative(tau, weeks, closure)
+            policy = schedules[s][weeks]                     # (n_weeks*nc, P) weekly policy
+            # Network is conditioned on the POLICY closure (the RL action).
+            state, dstate = self._time_derivative(tau, weeks, policy)
+            # Effective open = term-time(day) AND not policy-closed = product of {0,1}s.
+            term = self._term_time(tau, weeks)              # (n_weeks*nc, 1)
+            effective_open = term * policy                  # (n_weeks*nc, P)
             res = seir_residuals(
-                self.consts, state, dstate, beta_p, self.mu, self.kappa, closure
+                self.consts, state, dstate, beta_p, self.mu, self.kappa, effective_open
             )
             total = total + (res ** 2).mean()
         return total / Ns
@@ -288,14 +313,19 @@ class PINNTrainer:
         return total / max(count, 1)
 
     def loss_data(self) -> torch.Tensor:
-        """Weekly ILI incidence per nation under the TRUE calendar vs. observations."""
+        """Weekly ILI incidence per nation under the true (all-open) policy vs. observations.
+
+        The network is conditioned on the true historical POLICY (all-open in 2009); the
+        fixed daily calendar shapes the dynamics through the physics loss, so the learned
+        E already reflects term/holiday mixing. Incidence = alpha * integral of zeta*E.
+        """
         P, A = self.data.n_patches, self.mcfg.n_age_groups
         n_weeks = self.mcfg.n_weeks
         nq = self.tcfg.n_collocation
 
-        true_cal = torch.as_tensor(
+        true_policy = torch.as_tensor(
             self.sampler.true, dtype=self.dtype, device=self.device
-        )  # (n_weeks, P)
+        )  # (n_weeks, P), all-open
 
         # Evaluate E on a fixed quadrature grid within each week to integrate incidence.
         tau_nodes = torch.linspace(0, 1, nq, device=self.device, dtype=self.dtype)
@@ -303,8 +333,8 @@ class PINNTrainer:
         weeks = torch.repeat_interleave(
             torch.arange(n_weeks, device=self.device), nq
         )
-        closure = true_cal[weeks]                            # (n_weeks*nq, P)
-        state = self.net(tau_grid, weeks, closure)           # (n_weeks*nq, P, A, 4)
+        policy = true_policy[weeks]                          # (n_weeks*nq, P)
+        state = self.net(tau_grid, weeks, policy)            # (n_weeks*nq, P, A, 4)
         E = state[..., 1].reshape(n_weeks, nq, P, A)
         tau_week = tau_nodes.unsqueeze(0).expand(n_weeks, nq)
 
@@ -319,14 +349,14 @@ class PINNTrainer:
         return ((pred_obs - self.y_obs) ** 2).mean() / self._data_scale
 
     def loss_ic(self) -> torch.Tensor:
-        """Week-1 (index 0) initial condition at tau=0 under the true week-0 closure."""
+        """Week-1 (index 0) initial condition at tau=0 under the true (all-open) policy."""
         P, A = self.data.n_patches, self.mcfg.n_age_groups
         tau0 = torch.zeros(1, 1, device=self.device, dtype=self.dtype)
         week0 = torch.zeros(1, device=self.device, dtype=torch.int64)
-        closure0 = torch.as_tensor(
+        policy0 = torch.as_tensor(
             self.sampler.true[0], dtype=self.dtype, device=self.device
         ).unsqueeze(0)
-        state = self.net(tau0, week0, closure0)[0]           # (P, A, 4)
+        state = self.net(tau0, week0, policy0)[0]            # (P, A, 4)
         S, E, I = state[..., 0], state[..., 1], state[..., 2]
         # normalise IC residual by N as well
         N = self.consts.N
@@ -433,22 +463,22 @@ class PINNTrainer:
     # prediction / export
     # ------------------------------------------------------------------ #
     @torch.no_grad()
-    def predict_nation_incidence(self, schedule: np.ndarray = None) -> np.ndarray:
-        """Predicted weekly ILI-per-100k for each nation under a given schedule.
+    def predict_nation_incidence(self, policy: np.ndarray = None) -> np.ndarray:
+        """Predicted weekly ILI-per-100k for each nation under a given POLICY.
 
-        schedule: (n_weeks, P) in {0,1}; defaults to the true 2009 calendar.
+        policy: (n_weeks, P) in {0,1}; defaults to the true 2009 policy (all-open).
         Returns (R, n_weeks).
         """
-        if schedule is None:
-            schedule = self.sampler.true
-        n_weeks, P = schedule.shape
+        if policy is None:
+            policy = self.sampler.true
+        n_weeks, P = policy.shape
         nq = max(self.tcfg.n_collocation, 16)
-        cal = torch.as_tensor(schedule, dtype=self.dtype, device=self.device)
+        pol = torch.as_tensor(policy, dtype=self.dtype, device=self.device)
         tau_nodes = torch.linspace(0, 1, nq, device=self.device, dtype=self.dtype)
         tau_grid = tau_nodes.repeat(n_weeks).unsqueeze(1)
         weeks = torch.repeat_interleave(torch.arange(n_weeks, device=self.device), nq)
-        closure = cal[weeks]
-        state = self.net(tau_grid, weeks, closure)
+        pol_in = pol[weeks]
+        state = self.net(tau_grid, weeks, pol_in)
         E = state[..., 1].reshape(n_weeks, nq, P, self.mcfg.n_age_groups)
         tau_week = tau_nodes.unsqueeze(0).expand(n_weeks, nq)
         pred = nation_weekly_incidence(
@@ -456,6 +486,64 @@ class PINNTrainer:
             self.nation_population, self.alpha, self.mcfg.observation_scale,
         )
         return pred.cpu().numpy()
+
+    @torch.no_grad()
+    def predict_nation_incidence_daily(
+        self, policy: np.ndarray = None, samples_per_day: int = 1
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Predicted DAILY ILI incidence rate per nation, as a continuous curve.
+
+        Evaluates the network at ``samples_per_day`` points within each day of every
+        week and reports the daily incidence rate per 100k:
+            rate_day = alpha * observation_scale * (zeta * sum_{p in r, age} E) / N_r,
+        i.e. new symptomatic infections per 100k per DAY. Integrating this over the 7
+        days of a week recovers the weekly incidence used in the data loss.
+
+        Returns
+        -------
+        t_days : (n_days,) time in WEEK units (day d -> d/7), for plotting on the same
+                 axis as the weekly observations.
+        rate   : (R, n_days) daily incidence rate per 100k per day for each nation.
+        """
+        if policy is None:
+            policy = self.sampler.true
+        n_weeks, P = policy.shape
+        dpw = int(self.mcfg.days_per_week)
+        A = self.mcfg.n_age_groups
+        spd = max(1, samples_per_day)
+
+        pol = torch.as_tensor(policy, dtype=self.dtype, device=self.device)
+
+        # Build the per-day sample grid: for each week, dpw*spd points across [0,1).
+        # Place samples at day-centres (offset by (j+0.5)/spd within each day).
+        day_idx = torch.arange(dpw, device=self.device)
+        sub = (torch.arange(spd, device=self.device) + 0.5) / spd
+        # tau for each (day, sub): (day + sub)/dpw
+        tau_day = ((day_idx.unsqueeze(1) + sub.unsqueeze(0)) / dpw).reshape(-1)  # (dpw*spd,)
+        n_per_week = tau_day.shape[0]
+
+        tau_grid = tau_day.repeat(n_weeks).unsqueeze(1)                          # (n_weeks*npw,1)
+        weeks = torch.repeat_interleave(torch.arange(n_weeks, device=self.device), n_per_week)
+        pol_in = pol[weeks]
+        state = self.net(tau_grid, weeks, pol_in)
+        E = state[..., 1]                                                        # (n_weeks*npw, P, A)
+
+        # Aggregate to nations: new infections/day = zeta * sum_age E, sum over patch->nation.
+        flux = self.consts.zeta * E.sum(dim=-1)                                  # (rows, P)
+        nation_counts = torch.matmul(flux, self.membership.t())                  # (rows, R)
+        rate = (
+            self.alpha * self.mcfg.observation_scale
+            * nation_counts / self.nation_population.unsqueeze(0)
+        )                                                                        # (rows, R)
+
+        rate = rate.reshape(n_weeks, n_per_week, -1)                             # (n_weeks, npw, R)
+        rate = rate.permute(2, 0, 1).reshape(rate.shape[2], -1)                  # (R, n_weeks*npw)
+
+        # Absolute time in WEEK units for each sample.
+        t_days = (
+            torch.arange(n_weeks, device=self.device).unsqueeze(1) + tau_day.unsqueeze(0)
+        ).reshape(-1)                                                            # (n_weeks*npw,)
+        return t_days.cpu().numpy(), rate.cpu().numpy()
 
     def save(self, path: str) -> None:
         torch.save(

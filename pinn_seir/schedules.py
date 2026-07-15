@@ -88,6 +88,91 @@ def all_closed(n_weeks: int, n_patches: int) -> np.ndarray:
     return np.zeros((n_weeks, n_patches), dtype=np.float32)
 
 
+# --------------------------------------------------------------------------- #
+# Fixed historical calendar at DAILY resolution
+# --------------------------------------------------------------------------- #
+class DailyCalendar:
+    """Fixed historical school calendar, per patch, queried at day resolution.
+
+    Each patch (district) inherits its nation's holiday ranges. ``term_time`` returns
+    1.0 if the day at local time ``tau`` within week ``k`` is term-time for that patch,
+    else 0.0. The day within a week is ``floor(tau * days_per_week)`` (tau in [0, 1)).
+
+    This is the *historical* calendar only. The controllable POLICY closure is a
+    separate weekly, per-patch quantity; schools are open in a patch on a day iff
+    term-time AND not policy-closed (combined in the physics residual, not here).
+    """
+
+    def __init__(
+        self,
+        epidemic_start: str,
+        holiday_ranges_by_nation: Dict[str, Sequence[Tuple[str, str]]],
+        district_nations: Sequence[str],
+        n_weeks: int,
+        days_per_week: int = 7,
+    ) -> None:
+        self.start = _parse_date(epidemic_start)
+        self.n_weeks = n_weeks
+        self.days_per_week = days_per_week
+        self.district_nations = list(district_nations)
+        P = len(self.district_nations)
+
+        # Parse each nation's ranges once.
+        parsed: Dict[str, List[Tuple[date, date]]] = {}
+        for nation, ranges in holiday_ranges_by_nation.items():
+            parsed[nation] = [(_parse_date(a), _parse_date(b)) for a, b in ranges]
+
+        # Precompute a per-patch (P, n_weeks, days_per_week) term-time table.
+        table = np.ones((P, n_weeks, days_per_week), dtype=np.float32)
+        for p, nation in enumerate(self.district_nations):
+            ranges = parsed.get(nation)
+            if ranges is None:
+                raise ValueError(
+                    f"No holiday ranges configured for nation '{nation}' "
+                    f"(patch {p}). Configured nations: {sorted(parsed)}."
+                )
+            for k in range(n_weeks):
+                for d in range(days_per_week):
+                    day = self.start + timedelta(days=days_per_week * k + d)
+                    if any(a <= day <= b for a, b in ranges):
+                        table[p, k, d] = 0.0
+        self.table = table  # (P, n_weeks, days_per_week)
+
+    def day_of(self, tau: np.ndarray) -> np.ndarray:
+        """Map local time tau in [0,1) to a day index 0..days_per_week-1."""
+        d = np.floor(np.asarray(tau) * self.days_per_week).astype(np.int64)
+        return np.clip(d, 0, self.days_per_week - 1)
+
+    def term_time(self, week: np.ndarray, tau: np.ndarray) -> np.ndarray:
+        """Vectorised term-time lookup, returning (len, P).
+
+        week: int array (len,), tau: float array (len,) in [0,1). Returns term-time
+        for every patch at each queried (week, tau).
+        """
+        week = np.asarray(week, dtype=np.int64)
+        d = self.day_of(tau)
+        return self.table[:, week, d].T  # (len, P)
+
+    def transition_taus(self, week_k: int, patch: int = None) -> List[float]:
+        """Local-time points in (0,1) where term-time flips within week ``week_k``.
+
+        If ``patch`` is given, transitions for that patch; otherwise the union across
+        all patches (any patch that switches). Used for reference/inspection only --
+        mid-week switches are handled by per-collocation-point effective_open, not by
+        junctions.
+        """
+        if patch is not None:
+            rows = [self.table[patch, week_k]]
+        else:
+            rows = [self.table[p, week_k] for p in range(self.table.shape[0])]
+        taus = set()
+        for row in rows:
+            for d in range(1, self.days_per_week):
+                if row[d] != row[d - 1]:
+                    taus.add(d / self.days_per_week)
+        return sorted(taus)
+
+
 def random_budgeted(
     n_weeks: int,
     n_patches: int,
@@ -104,15 +189,21 @@ def random_budgeted(
 
 
 class ScheduleSampler:
-    """Draws a batch of schedules, always including the true calendar first."""
+    """Draws a batch of weekly POLICY-closure schedules.
+
+    A schedule is (n_weeks, P) in {0,1}: 1 = schools NOT policy-closed (open, subject
+    to the calendar), 0 = policy-closed. Index 0 of a sampled batch is always the true
+    2009 policy, which is all-open (the historical school holidays are handled by the
+    fixed daily calendar, not by policy). Physics/junction losses train over this
+    distribution so the surrogate generalises across the RL action space; the data loss
+    uses only the true (all-open) policy.
+    """
 
     def __init__(
         self,
         n_weeks: int,
         n_patches: int,
         budget_weeks: int,
-        epidemic_start: str,
-        holiday_ranges: Sequence[Tuple[str, str]],
         include_all_open: bool = True,
         include_all_closed: bool = True,
         seed: int = 0,
@@ -123,15 +214,12 @@ class ScheduleSampler:
         self.include_all_open = include_all_open
         self.include_all_closed = include_all_closed
         self.rng = np.random.default_rng(seed)
-        self.true = holiday_calendar(
-            n_weeks, n_patches, epidemic_start, holiday_ranges
-        )
+        # True historical policy: no mandated closures -> all open.
+        self.true = all_open(n_weeks, n_patches)
 
     def sample(self, n_schedules: int) -> np.ndarray:
-        """Return (n_schedules, n_weeks, P). Index 0 is always the true calendar."""
+        """Return (n_schedules, n_weeks, P). Index 0 is always the true (all-open) policy."""
         out: List[np.ndarray] = [self.true]
-        if self.include_all_open and len(out) < n_schedules:
-            out.append(all_open(self.n_weeks, self.n_patches))
         if self.include_all_closed and len(out) < n_schedules:
             out.append(all_closed(self.n_weeks, self.n_patches))
         while len(out) < n_schedules:
