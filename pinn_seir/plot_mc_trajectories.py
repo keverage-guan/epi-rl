@@ -11,14 +11,14 @@ Usage
 -----
 Weekly incidence fan chart (default):
     python -m pinn_seir.plot_mc_trajectories \
-        --checkpoint outputs/seir_pinn/checkpoint.pt \
+        --checkpoint outputs/seir_pinn/11340008/checkpoint.pt \
         --census     data/great_brittain/census.csv \
         --commute    data/great_brittain/commute.csv \
         --crosswalk  data/great_brittain/crosswalk.tsv \
         --contacts   data/contacts \
         --flu        data/epidemic/uk_flu_per_100000.csv \
-        --n-samples  200 \
-        --out        outputs/seir_pinn --dates
+        --n-samples  20 \
+        --out        outputs/seir_pinn/11340008 --dates
 
 Daily incidence instead of weekly:
     ... --daily --samples-per-day 2
@@ -70,9 +70,7 @@ def parse_args() -> argparse.Namespace:
                    help="number of individual sampled trajectories to overlay as thin "
                         "lines (0 disables the spaghetti overlay)")
     p.add_argument("--percentiles", type=str, default="2.5,25,75,97.5",
-                   help="comma-separated percentiles for the fan-chart bands, "
-                        "given as pairs from the outside in (e.g. '2.5,25,75,97.5' "
-                        "draws a 95% band and a 50% band)")
+                   help="comma-separated percentiles for the fan-chart bands, given as pairs from the outside in (e.g. 2.5,25,75,97.5 draws a 95%% band and a 50%% band)")
     p.add_argument("--dates", action="store_true", help="label x-axis with calendar dates")
     p.add_argument("--seed", type=int, default=0, help="RNG seed for the MC draws")
     return p.parse_args()
@@ -160,77 +158,78 @@ def main() -> None:
     torch.manual_seed(torch_rng_seed)
     rng = np.random.default_rng(torch_rng_seed)
 
-    if args.compartments:
-        # Full S,E,I,A,R nation trajectories.
-        t_days, traj = trainer.sample_state_trajectories(
-            n_samples=args.n_samples, samples_per_day=args.samples_per_day,
-        )  # traj: (n_samples, R, n_days, 5)
-        x = t_days
-        if args.dates:
-            x = _week_to_date(mcfg.epidemic_start, t_days)
+    with torch.no_grad():
+        if args.compartments:
+            t_days, traj = trainer.sample_state_trajectories(
+                n_samples=args.n_samples,
+                samples_per_day=args.samples_per_day,
+            )  # traj: (n_samples, R, n_days, 5)
+            x = t_days
+            if args.dates:
+                x = _week_to_date(mcfg.epidemic_start, t_days)
 
-        for r, nation in enumerate(data.nation_names):
-            fig, axes = plt.subplots(1, 5, figsize=(22, 4), sharex=True)
-            for c in range(5):
+            for r, nation in enumerate(data.nation_names):
+                fig, axes = plt.subplots(1, 5, figsize=(22, 4), sharex=True)
+                for c in range(5):
+                    _plot_fan(
+                        axes[c], x, traj[:, r, :, c],
+                        percentile_pairs=percentile_pairs,
+                        n_spaghetti=args.n_spaghetti,
+                        ylabel="count", title=_COMPARTMENT_NAMES[c], rng=rng,
+                    )
+                fig.suptitle(f"MC-dropout SEIAR trajectories — {nation}")
+                fig.tight_layout()
+                out_path = args.out / f"mc_compartments_{nation.lower()}.png"
+                fig.savefig(out_path, dpi=130)
+                print(f"Saved -> {out_path}")
+
+        else:
+            # Incidence (weekly or daily), the same quantity fit against the ILI data.
+            if args.daily:
+                t_x, samples = None, None
+                samples = trainer.sample_nation_incidence(
+                    n_samples=args.n_samples, daily=True, samples_per_day=args.samples_per_day,
+                )  # (n_samples, R, n_days)
+                t_x, _ = trainer.predict_nation_incidence_daily(samples_per_day=args.samples_per_day)
+                x = t_x
+                xlabel = "week"
+            else:
+                samples = trainer.sample_nation_incidence(n_samples=args.n_samples)  # (n_samples, R, n_weeks)
+                x = np.arange(samples.shape[-1])
+                xlabel = "week"
+
+            if args.dates:
+                x = _week_to_date(mcfg.epidemic_start, x)
+                xlabel = "date"
+
+            obs = data.y_obs
+            obs_x = data.obs_week_index.astype(float)
+            if args.dates:
+                obs_x = _week_to_date(mcfg.epidemic_start, obs_x)
+
+            n_nations = data.n_nations
+            fig, axes = plt.subplots(1, n_nations, figsize=(5.5 * n_nations, 4.5), sharex=True)
+            if n_nations == 1:
+                axes = [axes]
+            for r, ax in enumerate(axes):
                 _plot_fan(
-                    axes[c], x, traj[:, r, :, c],
+                    ax, x, samples[:, r, :],
+                    obs_x=obs_x, obs_y=obs[r, : len(data.obs_week_index)],
                     percentile_pairs=percentile_pairs,
                     n_spaghetti=args.n_spaghetti,
-                    ylabel="count", title=_COMPARTMENT_NAMES[c], rng=rng,
+                    ylabel="ILI per 100k" + (" / day" if args.daily else " / week"),
+                    title=data.nation_names[r], rng=rng,
                 )
-            fig.suptitle(f"MC-dropout SEIAR trajectories — {nation}")
+                ax.set_xlabel(xlabel)
+            fig.suptitle(
+                f"MC-dropout {'daily' if args.daily else 'weekly'} incidence "
+                f"({args.n_samples} samples, dropout_rate={trainer.net.dropout_rate})"
+            )
             fig.tight_layout()
-            out_path = args.out / f"mc_compartments_{nation.lower()}.png"
+            suffix = "daily" if args.daily else "weekly"
+            out_path = args.out / f"mc_incidence_{suffix}.png"
             fig.savefig(out_path, dpi=130)
             print(f"Saved -> {out_path}")
-
-    else:
-        # Incidence (weekly or daily), the same quantity fit against the ILI data.
-        if args.daily:
-            t_x, samples = None, None
-            samples = trainer.sample_nation_incidence(
-                n_samples=args.n_samples, daily=True, samples_per_day=args.samples_per_day,
-            )  # (n_samples, R, n_days)
-            t_x, _ = trainer.predict_nation_incidence_daily(samples_per_day=args.samples_per_day)
-            x = t_x
-            xlabel = "week"
-        else:
-            samples = trainer.sample_nation_incidence(n_samples=args.n_samples)  # (n_samples, R, n_weeks)
-            x = np.arange(samples.shape[-1])
-            xlabel = "week"
-
-        if args.dates:
-            x = _week_to_date(mcfg.epidemic_start, x)
-            xlabel = "date"
-
-        obs = data.y_obs
-        obs_x = data.obs_week_index.astype(float)
-        if args.dates:
-            obs_x = _week_to_date(mcfg.epidemic_start, obs_x)
-
-        n_nations = data.n_nations
-        fig, axes = plt.subplots(1, n_nations, figsize=(5.5 * n_nations, 4.5), sharex=True)
-        if n_nations == 1:
-            axes = [axes]
-        for r, ax in enumerate(axes):
-            _plot_fan(
-                ax, x, samples[:, r, :],
-                obs_x=obs_x, obs_y=obs[r, : len(data.obs_week_index)],
-                percentile_pairs=percentile_pairs,
-                n_spaghetti=args.n_spaghetti,
-                ylabel="ILI per 100k" + (" / day" if args.daily else " / week"),
-                title=data.nation_names[r], rng=rng,
-            )
-            ax.set_xlabel(xlabel)
-        fig.suptitle(
-            f"MC-dropout {'daily' if args.daily else 'weekly'} incidence "
-            f"({args.n_samples} samples, dropout_rate={trainer.net.dropout_rate})"
-        )
-        fig.tight_layout()
-        suffix = "daily" if args.daily else "weekly"
-        out_path = args.out / f"mc_incidence_{suffix}.png"
-        fig.savefig(out_path, dpi=130)
-        print(f"Saved -> {out_path}")
 
 
 if __name__ == "__main__":

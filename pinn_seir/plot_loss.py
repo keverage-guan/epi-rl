@@ -10,7 +10,7 @@ trajectories.
 
 Usage
 -----
-    python -m pinn_seir.plot_loss --log logs/seir_pinn_11331442.out --out outputs/seir_pinn/11331442
+    python -m pinn_seir.plot_loss --log logs/seir_pinn_11340008.out --out outputs/seir_pinn/11340008
 """
 
 from __future__ import annotations
