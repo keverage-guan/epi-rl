@@ -46,17 +46,32 @@ class ModelConfig:
     r0_init: float = 1.8         # basic reproduction number (trainable)
     mu_init: float = 0.5         # susceptible-modulation exponent in (0,1) (trainable)
     kappa_init: float = 1.0      # global coupling scale (fix to 1 first)
-    alpha_init: float = 0.25     # ascertainment fraction (symptomatic 1/4 scaling)
+    alpha_init: float = 0.25     # ascertainment fraction (of SYMPTOMATIC infections)
 
     train_r0: bool = True
     train_mu: bool = True
     train_kappa: bool = False    # keep fixed at 1.0 unless the fit demands otherwise
-    train_alpha: bool = False    # fixed at 1/4 per Libin et al.; free it only if needed
+    train_alpha: bool = False    # fixed at 1/4 by default; free it only if needed
+
+    # ---- symptomatic / asymptomatic split -------------------------------- #
+    # On leaving E, a fraction f_sym becomes SYMPTOMATIC (I) and (1 - f_sym) becomes
+    # ASYMPTOMATIC (A); both are infectious, asymptomatics scaled by r_asym in [0,1].
+    # Only symptomatic incidence (f_sym * zeta * E) is ascertained into the ILI data.
+    #
+    # IMPORTANT (identifiability): the observed series is alpha * f_sym * zeta * E, so
+    # alpha and f_sym are jointly identified only through their PRODUCT. Keep ONE of
+    # them fixed. The recommended sequencing is: fix f_sym from the literature and fit
+    # alpha. Do NOT free both f_sym and alpha at once.
+    f_sym: float = 0.5           # symptomatic fraction, 2009 H1N1 literature ~0.5-0.67
+    r_asym: float = 0.5          # relative asymptomatic infectiousness in [0,1]
+
+    train_f_sym: bool = False    # keep fixed; free only if alpha is held instead
+    train_r_asym: bool = False   # keep fixed at the literature value
 
     # ---- observation model ------------------------------------------------ #
     # The ILI series is a *rate per 100k* and is treated as weekly INCIDENCE, i.e.
-    # new symptomatic infections that week = alpha * (zeta * E) integrated over the
-    # week. observation_scale converts a per-capita weekly incidence into the units
+    # new symptomatic infections that week = alpha * f_sym * (zeta * E) integrated over
+    # the week. observation_scale converts a per-capita weekly incidence into the units
     # of the data (per 100,000 population).
     observation_scale: float = 1.0e5
 
@@ -119,11 +134,27 @@ class TrainConfig:
     initializer: str = "Glorot normal"
     week_embed_dim: int = 8      # size of the learned per-week index embedding
 
+    # ---- dropout / MC-dropout -------------------------------------------- #
+    # Dropout probability applied after every hidden activation in the trunk. A
+    # nonzero rate both regularises training and enables Monte-Carlo dropout: keep
+    # the dropout layers active at inference and draw repeated stochastic forward
+    # passes to sample a distribution over trajectories (epistemic uncertainty).
+    # 0.0 disables dropout entirely (deterministic net, as before).
+    dropout_rate: float = 0.0
+
     # ---- loss weights ----------------------------------------------------- #
     w_phys: float = 1.0
     w_junction: float = 1.0
     w_data: float = 1.0
     w_ic: float = 10.0           # IC is a small, precise anchor -> weight it up
+
+    # ---- alpha soft prior (identifiability) ------------------------------- #
+    # When alpha is trained it can wander to absorb R0/seeding amplitude (scale
+    # degeneracy). A small quadratic prior (alpha - mean)^2 centred on the Libin
+    # value keeps it anchored. Set weight to 0 to disable. Only applied when alpha
+    # is trainable.
+    alpha_prior_weight: float = 1.0
+    alpha_prior_mean: float = 0.25
 
     # ---- domain decomposition -------------------------------------------- #
     overlap_delta: float = 0.12  # half-width of the junction strip, in weeks (0.1-0.15)

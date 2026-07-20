@@ -8,8 +8,13 @@ Example
         --crosswalk     data/great_brittain/crosswalk.tsv \
         --contacts      data/contacts \
         --flu           data/epidemic/uk_flu_per_100000.csv \
-        --adam-iters    40000 \
+        --adam-iters    5000 \
         --out           /tmp/seir_pinn
+
+For Monte-Carlo dropout (epistemic-uncertainty sampling later), train with a nonzero
+dropout rate, e.g. ``--dropout-rate 0.05``. The saved checkpoint records the rate so
+`plot_fit`/reload rebuild an identical dropout network; MC samples are then drawn with
+``PINNTrainer.sample_nation_incidence`` / ``sample_state_trajectories``.
 
 Outputs written to --out:
     checkpoint.pt   trained network + fitted parameters
@@ -52,6 +57,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--lbfgs-iters", type=int, default=TrainConfig.lbfgs_iters)
     p.add_argument("--hidden-layers", type=int, default=TrainConfig.hidden_layers)
     p.add_argument("--hidden-width", type=int, default=TrainConfig.hidden_width)
+    p.add_argument("--dropout-rate", type=float, default=TrainConfig.dropout_rate,
+                   help="trunk dropout probability; >0 enables MC-dropout sampling")
     p.add_argument("--n-schedules", type=int, default=TrainConfig.n_schedules)
     p.add_argument("--n-collocation", type=int, default=TrainConfig.n_collocation)
     p.add_argument("--device", type=str, default=TrainConfig.device)
@@ -84,6 +91,7 @@ def main() -> None:
         lbfgs_iters=args.lbfgs_iters,
         hidden_layers=args.hidden_layers,
         hidden_width=args.hidden_width,
+        dropout_rate=args.dropout_rate,
         n_schedules=args.n_schedules,
         n_collocation=args.n_collocation,
         device=args.device,
@@ -99,6 +107,8 @@ def main() -> None:
     )
 
     print("Building and training PINN ...")
+    if tcfg.dropout_rate > 0.0:
+        print(f"  dropout_rate = {tcfg.dropout_rate} (MC-dropout sampling enabled)")
     trainer = PINNTrainer(data, mcfg, tcfg)
     logs = trainer.train()
 
@@ -129,6 +139,12 @@ def _export_plot(trainer: PINNTrainer, data, path: Path) -> None:
     obs = data.y_obs                                    # (R, T)
     weeks = np.arange(pred.shape[1])
 
+    # If trained with dropout, overlay an MC-dropout uncertainty band (mean +/- 2 std).
+    band = None
+    if getattr(trainer.net, "dropout_rate", 0.0) > 0.0:
+        samples = trainer.sample_nation_incidence(n_samples=100)  # (S, R, n_weeks)
+        band = (samples.mean(axis=0), samples.std(axis=0))
+
     fig, axes = plt.subplots(
         1, data.n_nations, figsize=(5 * data.n_nations, 4), sharex=True
     )
@@ -136,6 +152,12 @@ def _export_plot(trainer: PINNTrainer, data, path: Path) -> None:
         axes = [axes]
     for r, ax in enumerate(axes):
         ax.plot(weeks, pred[r], label="PINN", lw=2)
+        if band is not None:
+            mean_r, std_r = band[0][r], band[1][r]
+            ax.fill_between(
+                weeks, mean_r - 2 * std_r, mean_r + 2 * std_r,
+                alpha=0.25, color="C0", label="MC-dropout ±2σ",
+            )
         ax.scatter(
             data.obs_week_index, obs[r, : len(data.obs_week_index)],
             s=18, color="k", label="observed", zorder=3,

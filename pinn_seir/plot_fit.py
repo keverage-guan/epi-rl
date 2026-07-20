@@ -8,13 +8,13 @@ observed points for each nation, and shades the school-holiday periods.
 Usage
 -----
     python -m pinn_seir.plot_fit \
-        --checkpoint outputs/seir_pinn/checkpoint.pt \
+        --checkpoint outputs/seir_pinn/11340008/checkpoint.pt \
         --census     data/great_brittain/census.csv \
         --commute    data/great_brittain/commute.csv \
         --crosswalk  data/great_brittain/crosswalk.tsv \
         --contacts   data/contacts \
-        --flu        data/uk_flu_per_100000.csv \
-        --out        outputs/seir_pinn \
+        --flu        data/epidemic/uk_flu_per_100000.csv \
+        --out        outputs/seir_pinn/11340008 \
         --dates
 """
 
