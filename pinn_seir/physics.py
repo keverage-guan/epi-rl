@@ -43,13 +43,9 @@ class PhysicsConstants:
         return self.N[:, self.adult_index]  # (P,)
 
 
-def beta_per_patch(consts: PhysicsConstants, r0: torch.Tensor) -> torch.Tensor:
-    """Per-district beta from a shared scalar R0 via the next-generation matrix.
-
-    beta_p = R0 * gamma / rho(reciprocal school contact matrix of patch p).
-    Mirrors ``Eames2012.compute_beta`` but keeps R0 differentiable.
-    """
-    return r0 * consts.gamma / consts.ngm_radius  # (P,)
+def beta_per_patch(consts, r0, gamma):
+    """r0, gamma: (B,1) tensors. Returns (B, P)."""
+    return r0 * gamma / consts.ngm_radius.view(1, -1)
 
 
 def contact_matrices(consts: PhysicsConstants, effective_open: torch.Tensor) -> torch.Tensor:
@@ -82,7 +78,8 @@ def force_of_infection(
     rel = infectious / consts.N.unsqueeze(0)              # (B, P, A) = (I + r_A A)/N
     # (B,P,A,A) @ (B,P,A,1) -> (B,P,A,1)
     mixed = torch.matmul(M, rel.unsqueeze(-1)).squeeze(-1)  # (B, P, A)
-    return beta_p.view(1, -1, 1) * mixed                  # (B, P, A)
+    # force_of_infection: beta_p is now (B, P)
+    return beta_p.unsqueeze(-1) * mixed
 
 
 def meanfield_inflow(
@@ -116,9 +113,10 @@ def meanfield_inflow(
     flux.fill_diagonal_(0.0)                              # exclude p' == p
     inflow_sum = torch.matmul(rel_inf_adult, flux)        # (B, P)
 
+    # meanfield_inflow: beta_p is now (B, P)
     lam_adult = (
         kappa
-        * beta_p.view(1, -1)
+        * beta_p                                  # was beta_p.view(1, -1)
         * torch.pow(S_adult.clamp_min(0.0), mu)
         * consts.M_AA_school.view(1, -1)
         * inflow_sum
@@ -134,6 +132,7 @@ def seir_residuals(
     state: torch.Tensor,        # (B, P, A, 5) counts (S,E,I,A,R)
     dstate_dt_week: torch.Tensor,  # (B, P, A, 5) d/d(week) from autodiff
     beta_p: torch.Tensor,       # (P,)
+    gamma: torch.Tensor,
     mu: torch.Tensor,
     kappa: torch.Tensor,
     effective_open: torch.Tensor,  # (B, P) 1 = schools open (term AND not policy-closed)
@@ -164,10 +163,11 @@ def seir_residuals(
     #   dR/dt =  gamma (I + A)
     r_S = dS + phi * S + lam
     r_E = dE - phi * S + consts.zeta * E - lam
-    r_I = dI - f * consts.zeta * E + consts.gamma * I
-    r_A = dA - (1.0 - f) * consts.zeta * E + consts.gamma * A
-    r_R = dR - consts.gamma * (I + A)
-
+    g = gamma.view(-1, 1, 1)                  # (B,1,1), broadcasts over (B,P,A)
+    r_I = dI - f * consts.zeta * E + g * I
+    r_A = dA - (1.0 - f) * consts.zeta * E + g * A
+    r_R = dR - g * (I + A)
+    
     res = torch.stack([r_S, r_E, r_I, r_A, r_R], dim=-1)  # (B, P, A, 5)
     # Normalise to fractions of N so each compartment residual is O(1).
     return res / consts.N.unsqueeze(0).unsqueeze(-1)

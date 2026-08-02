@@ -10,7 +10,7 @@ trajectories.
 
 Usage
 -----
-    python -m pinn_seir.plot_loss --log logs/seir_pinn_11426009.out --out outputs/seir_pinn/11426009
+    python -m pinn_seir.plot_loss --log logs/seir_pinn_11911711.out --out outputs/seir_pinn/11911711
 """
 
 from __future__ import annotations
@@ -36,10 +36,13 @@ _LINE = re.compile(
     r"mu=(?P<mu>[-\d.eE+]+)\s+"
     r"kappa=(?P<kappa>[-\d.eE+]+)\s+"
     r"alpha=(?P<alpha>[-\d.eE+]+)"
+    r"(?:\s+R0_post=(?P<R0_post>[-\d.eE+]+)"
+    r"\s+gamma=(?P<gamma>[-\d.eE+]+)"
+    r"\s+gamma_post=(?P<gamma_post>[-\d.eE+]+))?"
 )
 
-_FIELDS = ["it", "loss", "phys", "junc", "data", "ic", "R0", "mu", "kappa", "alpha"]
-
+_FIELDS = ["it", "loss", "phys", "junc", "data", "ic",
+           "R0", "mu", "kappa", "alpha", "R0_post", "gamma", "gamma_post"]
 
 def parse_log(path: Path) -> dict:
     """Return a dict of field -> np.ndarray parsed from the log file."""
@@ -50,7 +53,8 @@ def parse_log(path: Path) -> dict:
             if not m:
                 continue
             for f in _FIELDS:
-                rows[f].append(float(m.group(f)))
+                v = m.group(f)
+                rows[f].append(float(v) if v is not None else np.nan)
     if not rows["it"]:
         raise ValueError(
             f"No parseable log lines found in {path}. Expected lines like "
@@ -78,10 +82,11 @@ def plot_losses(data: dict, out_path: Path) -> None:
     ax_loss.legend()
     ax_loss.grid(True, which="both", alpha=0.3)
 
-    ax_par.plot(it, data["R0"], label="R0", lw=1.5)
-    ax_par.plot(it, data["mu"], label="mu", lw=1.5)
-    ax_par.plot(it, data["kappa"], label="kappa", lw=1.5)
-    ax_par.plot(it, data["alpha"], label="alpha", lw=1.5)
+    for key, style in [("R0", "-"), ("mu", "-"), ("kappa", "-"), ("alpha", "-"),
+                       ("R0_post", "--"), ("gamma", "--"), ("gamma_post", "--")]:
+        if key in data and not np.all(np.isnan(data[key])):
+            ax_par.plot(it, data[key], label=key, lw=1.5, ls=style)
+    ax_par.set_xlabel("Adam iteration")
     ax_par.set_xlabel("Adam iteration")
     ax_par.set_ylabel("parameter value")
     ax_par.set_title("Fitted parameters")

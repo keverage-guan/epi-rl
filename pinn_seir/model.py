@@ -16,6 +16,7 @@ w.r.t. the local-time coordinate tau.
 from __future__ import annotations
 
 import time
+from datetime import datetime
 from typing import Dict, Tuple
 
 import numpy as np
@@ -133,6 +134,35 @@ class PINNTrainer:
         self.calendar_table = torch.as_tensor(
             self.calendar.table, dtype=self.dtype, device=self.device
         )
+
+        # ---- regime switch (containment -> treatment) --------------------- #
+        if mcfg.regime_switch_date is None:
+            self.switch_day = None
+        else:
+            d0 = datetime.strptime(mcfg.epidemic_start, "%Y-%m-%d").date()
+            ds = datetime.strptime(mcfg.regime_switch_date, "%Y-%m-%d").date()
+            self.switch_day = (ds - d0).days
+            horizon = int(mcfg.n_weeks * mcfg.days_per_week)
+            if not (0 < self.switch_day < horizon):
+                raise ValueError(
+                    f"regime_switch_date {mcfg.regime_switch_date} maps to model day "
+                    f"{self.switch_day}, outside the fitted horizon [1, {horizon - 1}] "
+                    f"(epidemic_start={mcfg.epidemic_start}, n_weeks={mcfg.n_weeks}). "
+                    f"A switch at or before day 0 makes the pre-switch parameters "
+                    f"unidentifiable; one past the horizon makes the post-switch "
+                    f"parameters unidentifiable. Either would train to completion and "
+                    f"report meaningless values."
+                )
+            print(
+                f"  regime switch: {mcfg.regime_switch_date} = model day "
+                f"{self.switch_day} (week {self.switch_day // int(mcfg.days_per_week)}, "
+                f"day {self.switch_day % int(mcfg.days_per_week)} of that week)"
+            )
+
+        self.raw_r0_post    = self._make_param(mcfg.r0_post_init,    mcfg.train_r0_post,    positive=True)
+        self.raw_gamma      = self._make_param(mcfg.gamma,           mcfg.train_gamma,      positive=True)
+        self.raw_gamma_post = self._make_param(mcfg.gamma_post_init, mcfg.train_gamma_post, positive=True)
+
         self._build_ic_targets()
 
     def _term_time(self, tau: torch.Tensor, week: torch.Tensor) -> torch.Tensor:
@@ -145,6 +175,18 @@ class PINNTrainer:
         day = torch.clamp((tau.squeeze(-1) * dpw).floor().long(), 0, dpw - 1)  # (B,)
         term = self.calendar_table[:, week, day]                              # (P, B)
         return term.t()                                                        # (B, P)
+
+    def _regime(self, tau, week):
+        """1.0 for post-switch collocation points, 0.0 for pre. Returns (B,1).
+
+        Uses the same floor-to-day convention as _term_time, so the switch is
+        resolved at daily resolution inside week 9 -- no weekly threshold.
+        """
+        if self.switch_day is None:
+            return torch.zeros_like(tau)
+        dpw = int(self.mcfg.days_per_week)
+        day = week.to(torch.int64) * dpw + (tau.squeeze(-1) * dpw).floor().long()
+        return (day >= self.switch_day).to(tau.dtype).unsqueeze(-1)
 
     # ------------------------------------------------------------------ #
     # parameter transforms
@@ -176,6 +218,18 @@ class PINNTrainer:
     @property
     def alpha(self):
         return torch.sigmoid(self.raw_alpha)
+
+    @property
+    def r0_post(self) -> torch.Tensor:
+        return torch.nn.functional.softplus(self.raw_r0_post)
+
+    @property
+    def gamma_pre(self) -> torch.Tensor:
+        return torch.nn.functional.softplus(self.raw_gamma)
+
+    @property
+    def gamma_post(self) -> torch.Tensor:
+        return torch.nn.functional.softplus(self.raw_gamma_post)
 
     def trainable_parameters(self):
         params = list(self.net.parameters())
@@ -260,29 +314,29 @@ class PINNTrainer:
     # ------------------------------------------------------------------ #
     # loss terms
     # ------------------------------------------------------------------ #
-    def loss_physics(self, schedules: torch.Tensor) -> torch.Tensor:
-        """Mean squared SEIAR residual over sampled schedules, all weeks, collocation nodes."""
+    def loss_physics(self, schedules):
         Ns, n_weeks, P = schedules.shape
-        A = self.mcfg.n_age_groups
         nc = self.tcfg.n_collocation
-
-        beta_p = beta_per_patch(self.consts, self.r0)
         total = torch.zeros((), device=self.device, dtype=self.dtype)
 
         for s in range(Ns):
-            # collocation local-times shared across weeks this step
             tau = torch.rand(n_weeks * nc, 1, device=self.device, dtype=self.dtype)
-            weeks = torch.repeat_interleave(
-                torch.arange(n_weeks, device=self.device), nc
-            )
-            policy = schedules[s][weeks]                     # (n_weeks*nc, P) weekly policy
-            # Network is conditioned on the POLICY closure (the RL action).
+            weeks = torch.repeat_interleave(torch.arange(n_weeks, device=self.device), nc)
+            policy = schedules[s][weeks]
+
             state, dstate = self._time_derivative(tau, weeks, policy)
-            # Effective open = term-time(day) AND not policy-closed = product of {0,1}s.
-            term = self._term_time(tau, weeks)              # (n_weeks*nc, 1)
-            effective_open = term * policy                  # (n_weeks*nc, P)
+            term = self._term_time(tau, weeks)
+            effective_open = term * policy
+
+            # --- regime-dependent parameters, per collocation point ---
+            g = self._regime(tau, weeks)                       # (B,1)
+            r0_eff    = (1.0 - g) * self.r0        + g * self.r0_post
+            gamma_eff = (1.0 - g) * self.gamma_pre + g * self.gamma_post
+            beta_p = beta_per_patch(self.consts, r0_eff, gamma_eff)   # (B,P)
+
             res = seir_residuals(
-                self.consts, state, dstate, beta_p, self.mu, self.kappa, effective_open
+                self.consts, state, dstate, beta_p, gamma_eff,
+                self.mu, self.kappa, effective_open,
             )
             total = total + (res ** 2).mean()
         return total / Ns
@@ -413,6 +467,9 @@ class PINNTrainer:
             "mu": float(self.mu.detach()),
             "kappa": float(self.kappa.detach()),
             "alpha": float(self.alpha.detach()),
+            "R0_post": float(self.r0_post.detach()),
+            "gamma": float(self.gamma_pre.detach()),
+            "gamma_post": float(self.gamma_post.detach()),
         }
         return loss, logs
 
@@ -443,7 +500,7 @@ class PINNTrainer:
                 loss=f"{logs['loss']:.3e}",
                 data=f"{logs['data']:.3e}",
                 R0=f"{logs['R0']:.3f}",
-                alpha=f"{logs['alpha']:.3f}",
+                R0p=f"{logs['R0_post']:.3f}",
             )
             if it % self.tcfg.log_every == 0 or it == 1:
                 dt = time.time() - t0
@@ -453,6 +510,8 @@ class PINNTrainer:
                     f"data={logs['data']:.3e} ic={logs['ic']:.3e} | "
                     f"R0={logs['R0']:.3f} mu={logs['mu']:.3f} "
                     f"kappa={logs['kappa']:.3f} alpha={logs['alpha']:.3f} "
+                    f"R0_post={logs['R0_post']:.3f} "
+                    f"gamma={logs['gamma']:.4f} gamma_post={logs['gamma_post']:.4f} "
                     f"({dt:.0f}s)"
                 )
 

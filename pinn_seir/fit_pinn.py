@@ -54,6 +54,10 @@ def parse_args() -> argparse.Namespace:
     # optimisation
     p.add_argument("--adam-iters", type=int, default=TrainConfig.adam_iters)
     p.add_argument("--adam-lr", type=float, default=TrainConfig.adam_lr)
+    p.add_argument("--lr-decay-step", type=int, default=TrainConfig.lr_decay_step,
+                   help="StepLR interval in Adam iterations")
+    p.add_argument("--lr-decay-gamma", type=float, default=TrainConfig.lr_decay_gamma,
+                   help="StepLR multiplicative factor at each decay step")
     p.add_argument("--lbfgs-iters", type=int, default=TrainConfig.lbfgs_iters)
     p.add_argument("--hidden-layers", type=int, default=TrainConfig.hidden_layers)
     p.add_argument("--hidden-width", type=int, default=TrainConfig.hidden_width)
@@ -65,6 +69,18 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--seed", type=int, default=TrainConfig.seed)
     # output
     p.add_argument("--out", type=Path, default=Path("/tmp/seir_pinn"))
+    p.add_argument("--epidemic-start", default=ModelConfig.epidemic_start)
+    p.add_argument("--regime-switch-date", default=ModelConfig.regime_switch_date,
+                help="ISO date of the containment->treatment switch; "
+                        "pass --no-regime-switch for a single-regime fit")
+    p.add_argument("--no-regime-switch", dest="regime_switch_date",
+                action="store_const", const=None)
+    p.add_argument("--r0-post-init",    type=float, default=ModelConfig.r0_post_init)
+    p.add_argument("--gamma-init",      type=float, default=ModelConfig.gamma)
+    p.add_argument("--gamma-post-init", type=float, default=ModelConfig.gamma_post_init)
+    p.add_argument("--train-r0-post",    action="store_true")
+    p.add_argument("--train-gamma",      action="store_true")
+    p.add_argument("--train-gamma-post", action="store_true")
     return p.parse_args()
 
 
@@ -84,10 +100,21 @@ def main() -> None:
         r0_init=args.r0_init,
         train_kappa=args.train_kappa,
         train_alpha=args.train_alpha,
+        # ---- regime switch ----
+        epidemic_start=args.epidemic_start,
+        regime_switch_date=args.regime_switch_date,
+        r0_post_init=args.r0_post_init,
+        gamma=args.gamma_init,
+        gamma_post_init=args.gamma_post_init,
+        train_r0_post=args.train_r0_post,
+        train_gamma=args.train_gamma,
+        train_gamma_post=args.train_gamma_post,
     )
     tcfg = TrainConfig(
         adam_iters=args.adam_iters,
         adam_lr=args.adam_lr,
+        lr_decay_step=args.lr_decay_step,
+        lr_decay_gamma=args.lr_decay_gamma,
         lbfgs_iters=args.lbfgs_iters,
         hidden_layers=args.hidden_layers,
         hidden_width=args.hidden_width,
@@ -119,7 +146,7 @@ def main() -> None:
     with open(args.out / "params.json", "w") as fh:
         json.dump(logs, fh, indent=2)
     print("Fitted parameters:")
-    for key in ("R0", "mu", "kappa", "alpha"):
+    for key in ("R0", "R0_post", "gamma", "gamma_post", "mu", "kappa", "alpha"):
         print(f"  {key} = {logs[key]:.4f}")
 
     _export_plot(trainer, data, args.out / "fit.png")

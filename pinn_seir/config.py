@@ -53,6 +53,18 @@ class ModelConfig:
     train_kappa: bool = False    # keep fixed at 1.0 unless the fit demands otherwise
     train_alpha: bool = False    # fixed at 1/4 by default; free it only if needed
 
+    # ---- regime switch: containment -> treatment (2009-07-02) ------------- #
+    # Model day of the switch is derived from epidemic_start; with the default
+    # 2009-04-27 seed this is day 66, i.e. day 3 of model week 9.
+    regime_switch_date: Optional[str] = "2009-07-02"   # None -> single regime
+
+    r0_post_init: float = 1.4          # post-switch R0
+    gamma_post_init: float = 1.0 / 1.8 # post-switch recovery rate (per day)
+
+    train_r0_post: bool = True
+    train_gamma: bool = True           # pre-switch gamma (was a hard constant)
+    train_gamma_post: bool = True
+
     # ---- symptomatic / asymptomatic split -------------------------------- #
     # On leaving E, a fraction f_sym becomes SYMPTOMATIC (I) and (1 - f_sym) becomes
     # ASYMPTOMATIC (A); both are infectious, asymptomatics scaled by r_asym in [0,1].
@@ -176,6 +188,7 @@ class TrainConfig:
     lr_decay_step: int = 15_000
     lr_decay_gamma: float = 0.5
     lbfgs_iters: int = 0         # optional L-BFGS polish after Adam (0 = skip)
+
 
     # ---- bookkeeping ------------------------------------------------------ #
     log_every: int = 500
