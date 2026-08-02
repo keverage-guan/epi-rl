@@ -34,6 +34,7 @@ from .data import load_epi_data
 from .model import PINNTrainer
 from .schedules import holiday_week_spans
 
+from .plot_utils import mark_switches
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(allow_abbrev=False, description=__doc__)
@@ -137,6 +138,7 @@ def _plot(data, t_days, pred_daily, obs, obs_weeks, mcfg, args) -> None:
         ax.plot(x_pred, pred_weekly_equiv[r], lw=1.5, color="C0",
                 label="PINN (daily)")
         ax.scatter(x_obs, obs[r], s=22, color="k", zorder=3, label="observed ILI (weekly)")
+        mark_switches(ax, mcfg, use_dates=args.dates)
         ax.set_title(data.nation_names[r])
         ax.set_xlabel(xlabel)
         ax.set_ylabel("ILI per 100k / week")

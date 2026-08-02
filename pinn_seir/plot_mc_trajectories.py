@@ -42,6 +42,8 @@ from .config import ModelConfig, TrainConfig
 from .data import load_epi_data
 from .model import PINNTrainer
 
+from .plot_utils import mark_switches
+
 _COMPARTMENT_NAMES = ["S", "E", "I (symptomatic)", "A (asymptomatic)", "R"]
 
 
@@ -83,7 +85,7 @@ def _week_to_date(epidemic_start: str, week_float: np.ndarray) -> list:
 
 def _plot_fan(
     ax, x, samples_r, obs_x=None, obs_y=None, percentile_pairs=None,
-    n_spaghetti=0, ylabel="", title="", rng=None,
+    n_spaghetti=0, ylabel="", title="", rng=None, mcfg=None, use_dates=False,
 ):
     """samples_r: (n_samples, n_x) array for one nation."""
     median = np.median(samples_r, axis=0)
@@ -109,6 +111,11 @@ def _plot_fan(
 
     if obs_x is not None:
         ax.scatter(obs_x, obs_y, s=18, color="k", label="observed", zorder=4)
+
+    ax.set_title(title)
+    ax.set_ylabel(ylabel)
+    if mcfg is not None:
+        mark_switches(ax, mcfg, use_dates=use_dates)
 
     ax.set_title(title)
     ax.set_ylabel(ylabel)
@@ -176,6 +183,7 @@ def main() -> None:
                         percentile_pairs=percentile_pairs,
                         n_spaghetti=args.n_spaghetti,
                         ylabel="count", title=_COMPARTMENT_NAMES[c], rng=rng,
+                        mcfg=mcfg, use_dates=args.dates,
                     )
                 fig.suptitle(f"MC-dropout SEIAR trajectories — {nation}")
                 fig.tight_layout()
@@ -219,6 +227,7 @@ def main() -> None:
                     n_spaghetti=args.n_spaghetti,
                     ylabel="ILI per 100k" + (" / day" if args.daily else " / week"),
                     title=data.nation_names[r], rng=rng,
+                    mcfg=mcfg, use_dates=args.dates,
                 )
                 ax.set_xlabel(xlabel)
             fig.suptitle(

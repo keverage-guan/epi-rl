@@ -34,6 +34,8 @@ from .config import ModelConfig, TrainConfig
 from .data import load_epi_data
 from .model import PINNTrainer
 
+from .plot_utils import mark_switches
+
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(allow_abbrev=False, description=__doc__)
@@ -189,6 +191,7 @@ def _export_plot(trainer: PINNTrainer, data, path: Path) -> None:
             data.obs_week_index, obs[r, : len(data.obs_week_index)],
             s=18, color="k", label="observed", zorder=3,
         )
+        mark_switches(ax, trainer.mcfg, use_dates=False)
         ax.set_title(data.nation_names[r])
         ax.set_xlabel("week")
         ax.set_ylabel("ILI per 100k / week")
