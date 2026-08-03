@@ -11,7 +11,7 @@ A schedule is a (n_weeks, P) array in {0,1}: 1 = schools OPEN, 0 = CLOSED.
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
-from typing import List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -101,6 +101,13 @@ class DailyCalendar:
     This is the *historical* calendar only. The controllable POLICY closure is a
     separate weekly, per-patch quantity; schools are open in a patch on a day iff
     term-time AND not policy-closed (combined in the physics residual, not here).
+
+    An EMPTY ``holiday_ranges_by_nation`` mapping means "no historical holidays at
+    all" (the ``ModelConfig.no_holidays`` ablation): every day is term-time for every
+    patch. This is deliberately distinguished from a *non-empty* mapping that happens
+    to be missing a district's nation, which stays a hard error -- that case is almost
+    always a nation-name mismatch between ``crosswalk.tsv`` and the holiday file, and
+    silently treating it as "no holidays there" would corrupt a fit without warning.
     """
 
     def __init__(
@@ -117,6 +124,9 @@ class DailyCalendar:
         self.district_nations = list(district_nations)
         P = len(self.district_nations)
 
+        # No calendar supplied at all -> ablation: every day term-time everywhere.
+        self.no_holidays = not holiday_ranges_by_nation
+
         # Parse each nation's ranges once.
         parsed: Dict[str, List[Tuple[date, date]]] = {}
         for nation, ranges in holiday_ranges_by_nation.items():
@@ -127,6 +137,8 @@ class DailyCalendar:
         for p, nation in enumerate(self.district_nations):
             ranges = parsed.get(nation)
             if ranges is None:
+                if self.no_holidays:
+                    continue  # row stays all-ones: term-time every day
                 raise ValueError(
                     f"No holiday ranges configured for nation '{nation}' "
                     f"(patch {p}). Configured nations: {sorted(parsed)}."

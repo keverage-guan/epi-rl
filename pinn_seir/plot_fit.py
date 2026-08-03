@@ -5,6 +5,11 @@ fitted parameters, not the fixed census/contact/flux arrays), loads the checkpoi
 predicts per-nation weekly incidence under the true 2009 calendar, overlays the
 observed points for each nation, and shades the school-holiday periods.
 
+The calendar here must match the one the checkpoint was TRAINED with -- the school
+calendar is a fixed input to the physics, not something the weights carry. If the fit
+was run with ``--no-historical-holidays``, pass it here too (params.json records which
+it was).
+
 Usage
 -----
     python -m pinn_seir.plot_fit \
@@ -14,6 +19,7 @@ Usage
         --crosswalk  data/great_brittain/crosswalk.tsv \
         --contacts   data/contacts \
         --flu        data/epidemic/uk_flu_per_100000.csv \
+        --holidays   data/great_brittain/school_holidays.csv \
         --out        outputs/seir_pinn/11911711 \
         --dates
 """
@@ -44,6 +50,12 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--crosswalk", type=Path, default=ModelConfig.crosswalk_path)
     p.add_argument("--contacts", type=Path, default=ModelConfig.contacts_dir)
     p.add_argument("--flu", type=Path, default=ModelConfig.flu_path)
+    p.add_argument("--holidays", type=Path, default=ModelConfig.holidays_path,
+                   help="per-nation school-holiday CSV (see pinn_seir/holidays.py)")
+    p.add_argument("--no-historical-holidays", action="store_true",
+                   help="rebuild the MODEL with no school calendar; use this when the "
+                        "checkpoint was trained with fit_pinn's same flag. Distinct "
+                        "from --no-holidays, which only affects the shading.")
     p.add_argument("--n-weeks", type=int, default=ModelConfig.n_weeks)
     p.add_argument("--seed-district", type=str, default=ModelConfig.seed_district)
     p.add_argument("--device", type=str, default="cpu")
@@ -65,12 +77,16 @@ def main() -> None:
         crosswalk_path=args.crosswalk,
         contacts_dir=args.contacts,
         flu_path=args.flu,
+        holidays_path=args.holidays,
+        no_holidays=args.no_historical_holidays,
         n_weeks=args.n_weeks,
         seed_district=args.seed_district,
     )
     tcfg = TrainConfig(device=args.device)
 
     print("Rebuilding model from data ...")
+    if mcfg.no_holidays:
+        print("  ABLATION: historical school calendar disabled (all days term-time)")
     data = load_epi_data(mcfg)
     trainer = PINNTrainer(data, mcfg, tcfg)
     trainer.load_checkpoint(str(args.checkpoint))
@@ -93,7 +109,11 @@ def _week_to_date(week_idx, epidemic_start: str):
 
 
 def _shade_holidays(ax, mcfg, use_dates: bool, nation: str) -> None:
-    """Shade a nation's school-holiday spans; label only the first for one legend entry."""
+    """Shade a nation's school-holiday spans; label only the first for one legend entry.
+
+    A no-op under `no_holidays` (the ranges dict is empty), so the ablation plots
+    without shading whether or not --no-holidays was passed.
+    """
     ranges = mcfg.holiday_ranges_by_nation.get(nation, [])
     if not ranges:
         return
@@ -149,7 +169,8 @@ def _plot(data, t_days, pred_daily, obs, obs_weeks, mcfg, args) -> None:
                 lbl.set_rotation(45)
                 lbl.set_ha("right")
 
-    fig.suptitle("PINN fit vs. observed 2009 H1N1 ILI", y=1.02)
+    suffix = " (no historical holidays)" if mcfg.no_holidays else ""
+    fig.suptitle(f"PINN fit vs. observed 2009 H1N1 ILI{suffix}", y=1.02)
     fig.tight_layout()
     out = args.out / "pinn_vs_data.png"
     fig.savefig(out, dpi=130, bbox_inches="tight")

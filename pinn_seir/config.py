@@ -6,9 +6,12 @@ code never hard-codes a magic number. Values follow Libin et al. unless noted.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+from functools import cached_property
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import List, Optional, Tuple
+
+from .holidays import HolidayRanges, load_holiday_ranges
 
 
 # --------------------------------------------------------------------------- #
@@ -29,6 +32,7 @@ class ModelConfig:
     crosswalk_path: Path = Path("data/great_brittain/crosswalk.tsv")
     contacts_dir: Path = Path("data/contacts")
     flu_path: Path = Path("data/uk_flu_per_100000.csv")
+    holidays_path: Path = Path("data/great_brittain/school_holidays.csv")
 
     # ---- age structure (Eames2012 order: Children, Adolescents, Adults, Elderly)
     n_age_groups: int = 4
@@ -95,41 +99,41 @@ class ModelConfig:
     epidemic_start: str = "2009-04-27"  # ISO date; defines the model week grid
 
     # ---- fixed historical school calendar, PER NATION (daily) ------------- #
-    # Inclusive holiday date ranges keyed by nation. Each district inherits its
-    # nation's calendar via the district->nation crosswalk (§1). A day is "term-time"
-    # for a district iff it falls in none of its nation's ranges. This is separate
-    # from POLICY closure (the weekly, per-patch RL action): schools are open in a
-    # district on a day iff (term-time that day for its nation) AND (not policy-closed
-    # that week in that district). See schedules.py.
-    holiday_ranges_by_nation: Dict[str, List[Tuple[str, str]]] = field(
-        default_factory=lambda: {
-            "Scotland": [
-                ("2009-07-03", "2009-08-16"),  # summer
-                ("2009-10-12", "2009-10-23"),  # autumn
-                ("2009-12-23", "2010-01-06"),  # christmas
-                ("2010-03-29", "2010-04-09"),  # spring
-            ],
-            "England": [
-                ("2009-07-21", "2009-09-02"),  # summer
-                ("2009-10-26", "2009-11-01"),  # autumn half-term
-                ("2009-12-19", "2010-01-03"),  # christmas
-                ("2010-02-13", "2010-02-21"),  # february half-term
-                ("2010-04-02", "2010-04-18"),  # spring
-                ("2010-05-29", "2010-06-06"),  # may half-term
-            ],
-            "Wales": [
-                ("2009-07-21", "2009-09-02"),  # summer
-                ("2009-10-26", "2009-11-01"),  # autumn half-term
-                ("2009-12-19", "2010-01-03"),  # christmas
-                ("2010-02-13", "2010-02-21"),  # february half-term
-                ("2010-04-02", "2010-04-18"),  # spring
-                ("2010-05-29", "2010-06-06"),  # may half-term
-            ],
-        }
-    )
+    # Inclusive holiday date ranges keyed by nation, loaded from `holidays_path`
+    # (data/great_brittain/school_holidays.csv) rather than hard-coded here; see
+    # holidays.py for the file format. Each district inherits its nation's calendar
+    # via the district->nation crosswalk (§1). A day is "term-time" for a district
+    # iff it falls in none of its nation's ranges. This is separate from POLICY
+    # closure (the weekly, per-patch RL action): schools are open in a district on a
+    # day iff (term-time that day for its nation) AND (not policy-closed that week in
+    # that district). See schedules.py.
+    #
+    # Two escape hatches, in precedence order:
+    #   no_holidays=True            ablation: NO historical holidays anywhere, every
+    #                               day term-time. Wins over holiday_ranges_override
+    #                               and over the file. The POLICY closure schedule is
+    #                               unaffected.
+    #   holiday_ranges_override     inject ranges directly (tests, counterfactual
+    #                               calendars) and bypass the file.
+    no_holidays: bool = False
+    holiday_ranges_override: Optional[HolidayRanges] = None
 
     # ---- district subset (None => use every district in the census) ------- #
     districts: Optional[List[str]] = None
+
+    @cached_property
+    def holiday_ranges_by_nation(self) -> HolidayRanges:
+        """{nation: [(iso_start, iso_end), ...]}, resolved once and cached.
+
+        Returns an EMPTY dict when `no_holidays` is set; DailyCalendar reads that as
+        "no historical calendar at all" and leaves every day term-time, rather than
+        as "this nation is missing from the file" (which stays an error).
+        """
+        if self.no_holidays:
+            return {}
+        if self.holiday_ranges_override is not None:
+            return self.holiday_ranges_override
+        return load_holiday_ranges(self.holidays_path)
 
 
 # --------------------------------------------------------------------------- #

@@ -8,8 +8,13 @@ Example
         --crosswalk     data/great_brittain/crosswalk.tsv \
         --contacts      data/contacts \
         --flu           data/epidemic/uk_flu_per_100000.csv \
+        --holidays      data/great_brittain/school_holidays.csv \
         --adam-iters    5000 \
         --out           /tmp/seir_pinn
+
+Pass ``--no-historical-holidays`` to ablate the fixed school calendar entirely (every
+day term-time). Note this is NOT the same as `plot_fit`'s ``--no-holidays``, which
+only suppresses the shaded bands on the plot.
 
 For Monte-Carlo dropout (epistemic-uncertainty sampling later), train with a nonzero
 dropout rate, e.g. ``--dropout-rate 0.05``. The saved checkpoint records the rate so
@@ -45,6 +50,11 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--crosswalk", type=Path, default=ModelConfig.crosswalk_path)
     p.add_argument("--contacts", type=Path, default=ModelConfig.contacts_dir)
     p.add_argument("--flu", type=Path, default=ModelConfig.flu_path)
+    p.add_argument("--holidays", type=Path, default=ModelConfig.holidays_path,
+                   help="per-nation school-holiday CSV (see pinn_seir/holidays.py)")
+    p.add_argument("--no-historical-holidays", action="store_true",
+                   help="ablation: ignore the school calendar, treat every day as "
+                        "term-time (POLICY closures are unaffected)")
     # structure
     p.add_argument("--n-weeks", type=int, default=ModelConfig.n_weeks)
     p.add_argument("--seed-district", type=str, default=ModelConfig.seed_district)
@@ -96,6 +106,8 @@ def main() -> None:
         crosswalk_path=args.crosswalk,
         contacts_dir=args.contacts,
         flu_path=args.flu,
+        holidays_path=args.holidays,
+        no_holidays=args.no_historical_holidays,
         n_weeks=args.n_weeks,
         seed_district=args.seed_district,
         seed_exposed_count=args.seed_exposed,
@@ -134,6 +146,11 @@ def main() -> None:
         f"({', '.join(data.nation_names)}); seed = "
         f"{data.district_names[data.seed_district_index]}"
     )
+    if mcfg.no_holidays:
+        print("  ABLATION: historical school calendar disabled (all days term-time)")
+    else:
+        print(f"  school calendar: {mcfg.holidays_path} "
+              f"({', '.join(sorted(mcfg.holiday_ranges_by_nation))})")
 
     print("Building and training PINN ...")
     if tcfg.dropout_rate > 0.0:
@@ -144,6 +161,13 @@ def main() -> None:
     ckpt = args.out / "checkpoint.pt"
     trainer.save(str(ckpt))
     print(f"Saved checkpoint -> {ckpt}")
+
+    # Record the calendar setting alongside the fitted parameters: a no-holidays fit
+    # is not comparable to a normal one, and the checkpoint alone does not say which
+    # it was.
+    logs = dict(logs)
+    logs["no_holidays"] = bool(mcfg.no_holidays)
+    logs["holidays_path"] = None if mcfg.no_holidays else str(mcfg.holidays_path)
 
     with open(args.out / "params.json", "w") as fh:
         json.dump(logs, fh, indent=2)
