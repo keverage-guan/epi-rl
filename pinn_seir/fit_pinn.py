@@ -93,6 +93,23 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--train-r0-post",    action="store_true")
     p.add_argument("--train-gamma",      action="store_true")
     p.add_argument("--train-gamma-post", action="store_true")
+    p.add_argument("--flu-dev", type=Path, default=None,
+                   help="held-out observation CSV for dev evaluation; never enters "
+                        "any loss term. Same schema as --flu.")
+    p.add_argument("--data-scale", type=float, default=None,
+                   help="pin the data-loss normaliser mean(y_obs**2). Leave unset "
+                        "within a sweep; pass the sweep's value when refitting on a "
+                        "different observation file (Phase 5).")
+    p.add_argument("--early-stop-patience", type=int, default=0,
+                   help="stop after N dev evaluations without improvement (0 = off, "
+                        "recommended: save-best is on regardless)")
+    # ---- Phase 3: shared unsupervised pretraining ----
+    p.add_argument("--pretrain", action="store_true",
+                   help="Stage A: train with w_data = 0 (no ILI values are read) and "
+                        "skip dev evaluation. Produces a reusable warm start.")
+    p.add_argument("--init-from", type=Path, default=None,
+                   help="Stage B: warm-start from a checkpoint. Architecture must "
+                        "match exactly.")
     return p.parse_args()
 
 
@@ -106,6 +123,7 @@ def main() -> None:
         crosswalk_path=args.crosswalk,
         contacts_dir=args.contacts,
         flu_path=args.flu,
+        flu_dev_path=None if args.pretrain else args.flu_dev,
         holidays_path=args.holidays,
         no_holidays=args.no_historical_holidays,
         n_weeks=args.n_weeks,
@@ -133,12 +151,17 @@ def main() -> None:
         hidden_layers=args.hidden_layers,
         hidden_width=args.hidden_width,
         dropout_rate=args.dropout_rate,
+        data_scale=args.data_scale,
+        early_stop_patience=args.early_stop_patience,
         n_schedules=args.n_schedules,
         n_collocation=args.n_collocation,
         device=args.device,
         seed=args.seed,
     )
-
+    if args.pretrain:
+        tcfg.w_data = 0.0
+        if args.flu_dev is not None:
+            print("  --pretrain: ignoring --flu-dev (no dev evaluation in Stage A)")
     print("Loading data ...")
     data = load_epi_data(mcfg)
     print(
@@ -156,7 +179,20 @@ def main() -> None:
     if tcfg.dropout_rate > 0.0:
         print(f"  dropout_rate = {tcfg.dropout_rate} (MC-dropout sampling enabled)")
     trainer = PINNTrainer(data, mcfg, tcfg)
-    logs = trainer.train()
+    print(f"  data_scale = {trainer._data_scale:.6g}"
+          f"{' (pinned)' if tcfg.data_scale is not None else ' (from --flu)'}")
+    if args.pretrain:
+        print("  STAGE A pretraining: w_data = 0, no observations enter the loss")
+    if trainer.has_dev:
+        print(f"  dev: {data.y_obs_dev.shape[1]} weeks from {args.flu_dev}")
+
+    if args.init_from is not None:
+        trainer.load_checkpoint(str(args.init_from), strict_arch=True)
+        trainer.net.train()
+        print(f"  warm start from {args.init_from}")
+
+    best_path = args.out / "checkpoint_best.pt" if trainer.has_dev else None
+    logs = trainer.train(best_checkpoint_path=str(best_path) if best_path else None)
 
     ckpt = args.out / "checkpoint.pt"
     trainer.save(str(ckpt))
@@ -168,6 +204,21 @@ def main() -> None:
     logs = dict(logs)
     logs["no_holidays"] = bool(mcfg.no_holidays)
     logs["holidays_path"] = None if mcfg.no_holidays else str(mcfg.holidays_path)
+    logs["data_scale"] = trainer._data_scale
+    logs["flu_path"] = str(mcfg.flu_path)
+    logs["flu_dev_path"] = None if mcfg.flu_dev_path is None else str(mcfg.flu_dev_path)
+    logs["w_data"] = tcfg.w_data
+    logs["w_junction"] = tcfg.w_junction
+    logs["w_ic"] = tcfg.w_ic
+    logs["dropout_rate"] = tcfg.dropout_rate
+    logs["seed"] = tcfg.seed
+    logs["pretrain"] = bool(args.pretrain)
+    logs["init_from"] = None if args.init_from is None else str(args.init_from)
+
+    if trainer.has_dev:
+        print(f"Best dev: {trainer.best_dev:.4e} at iteration {trainer.best_iter}")
+        for k in ("dev_rmse", "dev_rmse_holiday", "dev_rmse_term"):
+            print(f"  {k} = {trainer.best_dev_logs.get(k, float('nan')):.4f}")
 
     with open(args.out / "params.json", "w") as fh:
         json.dump(logs, fh, indent=2)

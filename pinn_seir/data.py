@@ -159,6 +159,8 @@ def load_epi_data(cfg: ModelConfig) -> EpiData:
     district_nations = [nation_of[d] for d in district_names]
 
     nation_population = membership @ census.sum(axis=1)  # (R,) total pop per nation
+    y_obs_dev: Optional[np.ndarray] = None          # (R, n_obs_dev)
+    obs_week_index_dev: Optional[np.ndarray] = None # (n_obs_dev,)
 
     # ---- seed district ---------------------------------------------------- #
     if cfg.seed_district not in p_index:
@@ -169,6 +171,19 @@ def load_epi_data(cfg: ModelConfig) -> EpiData:
 
     # ---- observed ILI series, aggregated to the active nations ----------- #
     y_obs, obs_week_index = _load_flu_series(cfg, nation_names)
+
+    y_obs_dev = obs_week_index_dev = None
+    if cfg.flu_dev_path is not None:
+        y_obs_dev, obs_week_index_dev = _load_flu_series(
+            cfg, nation_names, path=cfg.flu_dev_path
+        )
+        overlap = set(obs_week_index.tolist()) & set(obs_week_index_dev.tolist())
+        if overlap:
+            raise ValueError(
+                f"Train and dev flu files share model weeks {sorted(overlap)}. "
+                "The dev metric would be measured on fitted observations. Check "
+                "that both files came from the same split_epidemic_data.py run."
+            )
 
     return EpiData(
         district_names=district_names,
@@ -185,6 +200,8 @@ def load_epi_data(cfg: ModelConfig) -> EpiData:
         y_obs=y_obs,
         obs_week_index=obs_week_index,
         nation_population=nation_population,
+        y_obs_dev=y_obs_dev,
+        obs_week_index_dev=obs_week_index_dev,
     )
 
 
@@ -198,7 +215,7 @@ def _load_crosswalk(path: Path) -> Dict[str, str]:
 
 
 def _load_flu_series(
-    cfg: ModelConfig, nation_names: List[str]
+    cfg: ModelConfig, nation_names: List[str], path: Optional[Path] = None
 ) -> Tuple[np.ndarray, np.ndarray]:
     """Load the per-100k ILI series and align each row to a model week by its date.
 
@@ -218,7 +235,7 @@ def _load_flu_series(
     y : (R, n_obs) observed rate per 100k for each modelled nation, in week order.
     week_index : (n_obs,) the 0-based MODEL week index each observation corresponds to.
     """
-    df = pd.read_csv(cfg.flu_path)
+    df = pd.read_csv(path if path is not None else cfg.flu_path)
     lower = {c.lower(): c for c in df.columns}
 
     if "week_end_date" not in lower:

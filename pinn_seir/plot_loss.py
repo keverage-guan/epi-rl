@@ -31,7 +31,9 @@ _LINE = re.compile(
     r"phys=(?P<phys>[-\d.eE+]+)\s+"
     r"junc=(?P<junc>[-\d.eE+]+)\s+"
     r"data=(?P<data>[-\d.eE+]+)\s+"
-    r"ic=(?P<ic>[-\d.eE+]+)\s*\|\s*"
+    r"ic=(?P<ic>[-\d.eE+]+)\s*"
+    r"(?:dev=(?P<dev>[-\d.eE+]+)\s+dev_rmse=(?P<dev_rmse>[-\d.eE+]+)\s*)?"
+    r"\|\s*"
     r"R0=(?P<R0>[-\d.eE+]+)\s+"
     r"mu=(?P<mu>[-\d.eE+]+)\s+"
     r"kappa=(?P<kappa>[-\d.eE+]+)\s+"
@@ -41,7 +43,7 @@ _LINE = re.compile(
     r"\s+gamma_post=(?P<gamma_post>[-\d.eE+]+))?"
 )
 
-_FIELDS = ["it", "loss", "phys", "junc", "data", "ic",
+_FIELDS = ["it", "loss", "phys", "junc", "data", "ic", "dev", "dev_rmse",
            "R0", "mu", "kappa", "alpha", "R0_post", "gamma", "gamma_post"]
 
 def parse_log(path: Path) -> dict:
@@ -71,10 +73,20 @@ def plot_losses(data: dict, out_path: Path) -> None:
         ("loss", "total"),
         ("phys", "physics"),
         ("junc", "junction"),
-        ("data", "data"),
+        ("data", "data (train)"),
         ("ic", "IC"),
     ]:
         ax_loss.plot(it, data[key], label=label, lw=1.5)
+
+    if "dev" in data and not np.all(np.isnan(data["dev"])):
+        ax_loss.plot(it, data["dev"], label="data (dev)", lw=2.0, ls="--", color="k")
+        finite = np.flatnonzero(~np.isnan(data["dev"]))
+        best = finite[np.argmin(data["dev"][finite])]
+        ax_loss.axvline(it[best], color="k", ls=":", lw=1.0)
+        ax_loss.annotate(f"best_iter={int(it[best])}",
+                         xy=(it[best], np.nanmin(data["dev"])),
+                         xytext=(4, 8), textcoords="offset points", fontsize=8)
+        
     ax_loss.set_yscale("log")
     ax_loss.set_xlabel("Adam iteration")
     ax_loss.set_ylabel("loss (log scale)")

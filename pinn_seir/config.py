@@ -32,6 +32,7 @@ class ModelConfig:
     crosswalk_path: Path = Path("data/great_brittain/crosswalk.tsv")
     contacts_dir: Path = Path("data/contacts")
     flu_path: Path = Path("data/uk_flu_per_100000.csv")
+    flu_dev_path: Optional[Path] = None
     holidays_path: Path = Path("data/great_brittain/school_holidays.csv")
 
     # ---- age structure (Eames2012 order: Children, Adolescents, Adults, Elderly)
@@ -164,6 +165,8 @@ class TrainConfig:
     w_data: float = 1.0
     w_ic: float = 10.0           # IC is a small, precise anchor -> weight it up
 
+    data_scale: Optional[float] = None
+
     # ---- alpha soft prior (identifiability) ------------------------------- #
     # When alpha is trained it can wander to absorb R0/seeding amplitude (scale
     # degeneracy). A small quadratic prior (alpha - mean)^2 centred on the Libin
@@ -199,6 +202,7 @@ class TrainConfig:
     seed: int = 0
     device: str = "cuda"         # falls back to cpu automatically if unavailable
     dtype: str = "float32"
+    early_stop_patience: int = 0
 
     def weight_kwargs(self) -> Tuple[str, float]:
         return self.junction_weight, self.overlap_delta

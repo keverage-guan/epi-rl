@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import time
 from datetime import datetime
-from typing import Dict, Tuple
+from typing import Dict, Tuple, Optional
 
 import numpy as np
 import torch
@@ -95,7 +95,20 @@ class PINNTrainer:
         # Characteristic scale for the data loss: mean-square of the observations.
         # Dividing the data MSE by this makes it dimensionless and O(1), so the
         # loss weights in TrainConfig are comparable across the four terms.
-        self._data_scale = float((data.y_obs ** 2).mean()) + 1e-8
+        # Characteristic scale for the data loss. Pinned via TrainConfig.data_scale
+        # when comparing across runs that load different observation files.
+        if tcfg.data_scale is not None:
+            self._data_scale = float(tcfg.data_scale)
+        else:
+            self._data_scale = float((data.y_obs ** 2).mean()) + 1e-8
+
+        # ---- held-out dev observations (evaluation only, never in a loss) -- #
+        self.has_dev = data.y_obs_dev is not None
+        if self.has_dev:
+            self.y_obs_dev = T(data.y_obs_dev)
+            self.obs_week_index_dev = torch.as_tensor(
+                data.obs_week_index_dev, dtype=torch.int64, device=self.device
+            )
 
         # ---- network ------------------------------------------------------ #
         self.net = SEIRPINN(
@@ -134,6 +147,12 @@ class PINNTrainer:
         self.calendar_table = torch.as_tensor(
             self.calendar.table, dtype=self.dtype, device=self.device
         )
+
+        if self.has_dev:
+            term_frac = self.calendar_table.mean(dim=2)          # (P, n_weeks)
+            memb = self.membership                                # (R, P)
+            per_nation = (memb @ term_frac) / memb.sum(dim=1, keepdim=True)
+            self._week_is_holiday = (per_nation < 0.5)            # (R, n_weeks)
 
         # ---- regime switch (containment -> treatment) --------------------- #
         if mcfg.regime_switch_date is None:
@@ -373,13 +392,11 @@ class PINNTrainer:
                 count += 1
         return total / max(count, 1)
 
-    def loss_data(self) -> torch.Tensor:
-        """Weekly ILI incidence per nation under the true (all-open) policy vs. observations.
+    def _predict_nation_weekly(self) -> torch.Tensor:
+        """(R, n_weeks) ascertained symptomatic incidence under the true policy.
 
-        The network is conditioned on the true historical POLICY (all-open in 2009); the
-        fixed daily calendar shapes the dynamics through the physics loss, so the learned
-        E already reflects term/holiday mixing. Observed incidence = alpha * f_sym *
-        integral of zeta*E (symptomatic ascertained incidence).
+        Shared by the training data loss and the dev evaluation so the two can
+        never drift apart.
         """
         P, A = self.data.n_patches, self.mcfg.n_age_groups
         n_weeks = self.mcfg.n_weeks
@@ -387,28 +404,67 @@ class PINNTrainer:
 
         true_policy = torch.as_tensor(
             self.sampler.true, dtype=self.dtype, device=self.device
-        )  # (n_weeks, P), all-open
+        )
 
-        # Evaluate E on a fixed quadrature grid within each week to integrate incidence.
         tau_nodes = torch.linspace(0, 1, nq, device=self.device, dtype=self.dtype)
-        tau_grid = tau_nodes.repeat(n_weeks).unsqueeze(1)    # (n_weeks*nq, 1)
+        tau_grid = tau_nodes.repeat(n_weeks).unsqueeze(1)
         weeks = torch.repeat_interleave(
             torch.arange(n_weeks, device=self.device), nq
         )
-        policy = true_policy[weeks]                          # (n_weeks*nq, P)
-        state = self.net(tau_grid, weeks, policy)            # (n_weeks*nq, P, A, 5)
+        policy = true_policy[weeks]
+        state = self.net(tau_grid, weeks, policy)
         E = state[..., 1].reshape(n_weeks, nq, P, A)
         tau_week = tau_nodes.unsqueeze(0).expand(n_weeks, nq)
 
-        pred = nation_weekly_incidence(
+        return nation_weekly_incidence(
             self.consts, E, tau_week, self.membership,
             self.nation_population, self.alpha, self.mcfg.observation_scale,
-        )                                                    # (R, n_weeks)
+        )
 
-        # obs_week_index holds the MODEL week each observation maps to (by date);
-        # y_obs is aligned to that same ordering.
-        pred_obs = pred[:, self.obs_week_index]              # (R, n_obs)
+    def loss_data(self) -> torch.Tensor:
+        """Weekly ILI incidence per nation vs. the TRAINING observations."""
+        pred = self._predict_nation_weekly()
+        pred_obs = pred[:, self.obs_week_index]
         return ((pred_obs - self.y_obs) ** 2).mean() / self._data_scale
+
+    @torch.no_grad()
+    def evaluate_dev(self) -> Dict[str, float]:
+        """Held-out metrics on the dev observations. Toggles dropout off and back.
+
+        `dev_data` uses the same normalisation as the training data loss, so the
+        two curves are directly comparable. `dev_rmse` is in per-100k units and is
+        independent of _data_scale, so it stays comparable across runs that pinned
+        different scales.
+        """
+        was_training = self.net.training
+        self.net.eval()
+        try:
+            pred = self._predict_nation_weekly()
+            pred_obs = pred[:, self.obs_week_index_dev]          # (R, n_dev)
+            err2 = (pred_obs - self.y_obs_dev) ** 2
+
+            out = {
+                "dev_data": float(err2.mean() / self._data_scale),
+                "dev_rmse": float(err2.mean().sqrt()),
+            }
+
+            # Per-nation, so one nation blowing up is visible.
+            for r, name in enumerate(self.data.nation_names):
+                out[f"dev_rmse_{name.lower()}"] = float(err2[r].mean().sqrt())
+
+            # Holiday / term-time breakdown. With ~2 holiday weeks in dev, a single
+            # bad week dominates the aggregate; always read these two together.
+            hol = self._week_is_holiday[:, self.obs_week_index_dev]   # (R, n_dev)
+            for label, mask in (("holiday", hol), ("term", ~hol)):
+                n = int(mask.sum())
+                out[f"dev_rmse_{label}"] = (
+                    float(err2[mask].mean().sqrt()) if n else float("nan")
+                )
+                out[f"dev_n_{label}"] = n
+            return out
+        finally:
+            if was_training:
+                self.net.train()
 
     def loss_ic(self) -> torch.Tensor:
         """Week-1 (index 0) initial condition at tau=0 under the true (all-open) policy."""
@@ -439,7 +495,11 @@ class PINNTrainer:
 
         l_phys = self.loss_physics(schedules)
         l_junc = self.loss_junction(schedules)
-        l_data = self.loss_data()
+        if self.has_dev:
+            last_logs = dict(last_logs)
+            last_logs["best_iter"] = self.best_iter
+            last_logs["best_dev_data"] = self.best_dev
+            last_logs.update({f"best_{k}": v for k, v in self.best_dev_logs.items()})
         l_ic = self.loss_ic()
 
         loss = (
@@ -476,7 +536,7 @@ class PINNTrainer:
     # ------------------------------------------------------------------ #
     # training
     # ------------------------------------------------------------------ #
-    def train(self) -> Dict[str, float]:
+    def train(self, best_checkpoint_path: Optional[str] = None) -> Dict[str, float]:
         params = self.trainable_parameters()
         opt = torch.optim.Adam(params, lr=self.tcfg.adam_lr)
         sched = torch.optim.lr_scheduler.StepLR(
@@ -485,6 +545,10 @@ class PINNTrainer:
 
         t0 = time.time()
         last_logs: Dict[str, float] = {}
+        self.best_iter: Optional[int] = None
+        self.best_dev: float = float("inf")
+        self.best_dev_logs: Dict[str, float] = {}
+        stale_evals = 0
         # Dropout active during training (regularisation + MC-consistent physics).
         self.net.train()
         pbar = tqdm(range(1, self.tcfg.adam_iters + 1), desc="Adam", unit="it")
@@ -504,16 +568,38 @@ class PINNTrainer:
             )
             if it % self.tcfg.log_every == 0 or it == 1:
                 dt = time.time() - t0
+                dev_str = ""
+                if self.has_dev:
+                    dev = self.evaluate_dev()
+                    dev_str = (f"dev={dev['dev_data']:.3e} "
+                               f"dev_rmse={dev['dev_rmse']:.3e} ")
+                    if dev["dev_data"] < self.best_dev:
+                        self.best_dev = dev["dev_data"]
+                        self.best_iter = it
+                        self.best_dev_logs = dict(dev)
+                        stale_evals = 0
+                        if best_checkpoint_path is not None:
+                            self.save(best_checkpoint_path)
+                    else:
+                        stale_evals += 1
                 tqdm.write(
                     f"[{it:>6}] loss={logs['loss']:.4e} "
                     f"phys={logs['phys']:.3e} junc={logs['junction']:.3e} "
-                    f"data={logs['data']:.3e} ic={logs['ic']:.3e} | "
+                    f"data={logs['data']:.3e} ic={logs['ic']:.3e} "
+                    f"{dev_str}| "
                     f"R0={logs['R0']:.3f} mu={logs['mu']:.3f} "
                     f"kappa={logs['kappa']:.3f} alpha={logs['alpha']:.3f} "
                     f"R0_post={logs['R0_post']:.3f} "
                     f"gamma={logs['gamma']:.4f} gamma_post={logs['gamma_post']:.4f} "
                     f"({dt:.0f}s)"
                 )
+                if (self.tcfg.early_stop_patience > 0
+                        and stale_evals >= self.tcfg.early_stop_patience):
+                    tqdm.write(
+                        f"Early stop at {it}: {stale_evals} evaluations without a "
+                        f"dev improvement (best {self.best_dev:.4e} @ {self.best_iter})."
+                    )
+                    break
 
         if self.tcfg.lbfgs_iters > 0:
             self._polish_lbfgs(params)
@@ -523,6 +609,13 @@ class PINNTrainer:
         # it back on temporarily via net.mc_dropout(); plain predictors stay stochastic-
         # free. load_checkpoint also leaves the net in eval mode.
         self.net.eval()
+
+        if self.has_dev:
+            last_logs = dict(last_logs)
+            last_logs["best_iter"] = self.best_iter
+            last_logs["best_dev_data"] = self.best_dev
+            last_logs.update({f"best_{k}": v for k, v in self.best_dev_logs.items()})
+
         return last_logs
 
     def _polish_lbfgs(self, params) -> None:
@@ -775,7 +868,7 @@ class PINNTrainer:
             path,
         )
 
-    def load_checkpoint(self, path: str) -> None:
+    def load_checkpoint(self, path: str, strict_arch: bool = False) -> None:
         """Restore network weights and fitted parameters from a saved checkpoint.
 
         The fixed data arrays are not stored in the checkpoint; rebuild the trainer
@@ -798,6 +891,14 @@ class PINNTrainer:
             mismatched = any(
                 getattr(self.tcfg, k) != v for k, v in arch.items()
             )
+            if mismatched and strict_arch:
+                diff = {k: (getattr(self.tcfg, k), v)
+                        for k, v in arch.items() if getattr(self.tcfg, k) != v}
+                raise ValueError(
+                    "Architecture mismatch under strict loading (current, checkpoint): "
+                    f"{diff}. A warm start must use an identical network; rerun with "
+                    "matching --hidden-layers/--hidden-width/--dropout-rate."
+                )
             if mismatched:
                 print(
                     "Rebuilding network to match checkpoint architecture "
