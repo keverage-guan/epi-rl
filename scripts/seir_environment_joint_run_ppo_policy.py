@@ -45,7 +45,6 @@ env = MultiAgentSelectObservation(env, ids)
 env = MultiAgentSelectAction(env, ids, 1)
 
 def evaluate(env, model, ids, num_steps):
-    """Return (aggregate attack rate, worst single district's attack rate)."""
     obs, _ = env.reset()
     sus_before = districts_susceptibles_per(env, ids)
     for _ in tqdm(range(num_steps), desc="  steps", unit="week", leave=False):
@@ -63,8 +62,6 @@ baseline_sus_after = districts_susceptibles_per(env, ids)
 baseline_worst_district_ar = (1.0 - (baseline_sus_after / baseline_sus_before)).max()
 
 model = PPO.load(str(args.path / "params"))
-# PPO.load() reseeds numpy's global RNG to the training seed; reseed from OS entropy
-# so the runs below are independent
 np.random.seed(None)
 print("ar-improvement,worst-district-ar-improvement")
 for _ in tqdm(range(args.runs), desc="evaluation runs", unit="run"):

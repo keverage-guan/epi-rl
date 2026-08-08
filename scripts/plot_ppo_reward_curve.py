@@ -26,7 +26,6 @@ import tensorflow as tf
 def get_tf_file(folder: Path) -> Path:
     return next(folder.glob("events*"))
 
-
 def get_tf_rewards(root_path):
     fn = get_tf_file(root_path)
 
@@ -44,7 +43,6 @@ def get_tf_rewards(root_path):
 
     return (steps, values)
 
-
 def plot_to_file(filename):
     if filename.endswith(".png"):
         plt.savefig(filename, bbox_inches='tight', pad_inches=0.05, dpi=1000)
@@ -55,7 +53,6 @@ def plot_to_file(filename):
     else:
         sys.exit("Unsupported output format! Exit-ing")
     plt.close()
-
 
 def main():
     parser = argparse.ArgumentParser()

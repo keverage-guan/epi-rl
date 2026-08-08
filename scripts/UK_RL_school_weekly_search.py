@@ -56,8 +56,6 @@ delta = .5
 model = UK(delta, args.R0, rho, gamma, district_names, grouped_census, flux, mu, sde=False)
 
 weekends = False
-# enumerate directly which weeks are closed, instead of generating all 2**weeks binary
-# strings and filtering: C(weeks, budget_weeks) is much smaller than 2**weeks
 n_combinations = math.comb(args.weeks, args.budget_weeks)
 school_combinations = []
 for closed_weeks in tqdm(itertools.combinations(range(args.weeks), args.budget_weeks),
@@ -73,7 +71,6 @@ for closed_weeks in tqdm(itertools.combinations(range(args.weeks), args.budget_w
 no_closures = [1] * args.weeks
 (baseline_pd, baseline_ar, _) = run_model(model, args.weeks, weekends, args.district, no_closures)
 
-#print header
 print("combination," + args.outcome + "_improvement")
 
 for c in tqdm(school_combinations,

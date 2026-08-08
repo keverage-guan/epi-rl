@@ -38,8 +38,6 @@ def make_model(district_name: str, sde: bool) -> UK:
     return UK(DELTA, args.R0, RHO, GAMMA, [district_name], grouped_census, fl, mu, sde=sde)
 
 model = PPO.load(str(args.path / "params"))
-# PPO.load() reseeds numpy's global RNG to the training seed; reseed from OS entropy
-# so the rollouts below are independent
 np.random.seed(None)
 
 print("district,ar-improvement")

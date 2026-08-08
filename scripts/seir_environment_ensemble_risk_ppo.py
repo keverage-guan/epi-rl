@@ -17,8 +17,6 @@ from epcontrol.seir_environment import Granularity, Outcome, SEIREnvironment
 from epcontrol.UK_SEIR_Eames import UK
 from epcontrol.wrappers import NormalizedObservationWrapper, NormalizedRewardWrapper, RiskShapedReward
 
-# districts with similar total population, so swapping district each episode stays
-# within the observation/reward bounds sized from a single reference district
 TRAIN_DISTRICTS = ["Folkestone and Hythe", "South Staffordshire", "Scarborough", "South Ribble",
                    "Mendip", "Broxtowe", "Taunton Deane", "Welwyn Hatfield", "West Lancashire",
                    "St Edmundsbury", "Rushcliffe", "Fareham", "Dover", "Erewash", "Stroud",
@@ -73,7 +71,6 @@ def ensemble_model_factory() -> UK:
     district_name = np.random.choice(TRAIN_DISTRICTS)
     return make_model(district_name)
 
-# largest-population district across train+holdout, sizes the observation/reward bounds
 reference_district = full_census.loc[TRAIN_DISTRICTS + HOLDOUT_DISTRICTS].sum(axis=1).idxmax()
 
 def wrap_env(env):
