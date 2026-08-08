@@ -7,3 +7,11 @@
 __pycache__
 *.srctrl*
 results
+slurm/
+# large regenerable model artifacts
+*.pt
+*.zip
+*.npz
+.venv/
+epcontrol.egg-info/
+logs/
