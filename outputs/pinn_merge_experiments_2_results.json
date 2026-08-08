@@ -1,0 +1,77 @@
+{
+  "track_a_adapter": {
+    "protocol_isinstance_check": true,
+    "env_constructed": true,
+    "n_rl_steps_completed": 43,
+    "n_gpu_calls": 301,
+    "total_elapsed_seconds": 0.4116823673248291,
+    "seconds_per_rl_step": 0.009574008542437886,
+    "final_total_infected": 47555388.0,
+    "final_total_susceptibles": 3789466.0,
+    "attack_rate_proxy": 0.9382514394289745
+  },
+  "track_b_lbfgs": {
+    "lbfgs_elapsed_seconds": 19.946539878845215,
+    "before_params": {
+      "R0": 1.0126985311508179,
+      "mu": 0.2871035039424896,
+      "kappa": 1.0,
+      "alpha": 0.2504502832889557
+    },
+    "after_params": {
+      "R0": 1.0126984119415283,
+      "mu": 0.2871033847332001,
+      "kappa": 1.0,
+      "alpha": 0.2504502832889557
+    },
+    "before_loss": {
+      "loss": 0.002607869915664196,
+      "phys": 0.00013981627125758678,
+      "junction": 7.42893826100044e-05,
+      "data": 0.0023872184101492167,
+      "ic": 6.54579025649582e-07
+    },
+    "after_loss": {
+      "loss": 0.0029166354797780514,
+      "phys": 0.00014249410014599562,
+      "junction": 7.537437340943143e-05,
+      "data": 0.002692155772820115,
+      "ic": 6.611320486626937e-07
+    },
+    "before_monotonicity": {
+      "all_open": {
+        "England": -5.810177903685926e-05,
+        "Scotland": 0.0001779842289921485,
+        "Wales": -5.516632647432007e-05
+      },
+      "all_closed": {
+        "England": 7.9529932599932e-06,
+        "Scotland": 0.0007727981096564139,
+        "Wales": -0.0005096669838237397
+      },
+      "budgeted_6wk": {
+        "England": 8.979365851150976e-06,
+        "Scotland": 0.00036673249093130227,
+        "Wales": -3.990581900287355e-05
+      }
+    },
+    "after_monotonicity": {
+      "all_open": {
+        "England": -7.017487597958326e-06,
+        "Scotland": -0.00013936590026122607,
+        "Wales": 8.242306174417644e-06
+      },
+      "all_closed": {
+        "England": -8.66400510415522e-06,
+        "Scotland": -0.0007524385539693741,
+        "Wales": -0.00017663287474573301
+      },
+      "budgeted_6wk": {
+        "England": 2.8673605238969506e-06,
+        "Scotland": -0.00013436156915428503,
+        "Wales": 6.397988159151914e-05
+      }
+    },
+    "saved_checkpoint": "outputs/seir_pinn/11426009_lbfgs_polished_checkpoint.pt"
+  }
+}

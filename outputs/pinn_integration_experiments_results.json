@@ -1,0 +1,64 @@
+{
+  "checkpoint_diagnostics": {
+    "11340008": {
+      "dropout_rate": 0.1,
+      "R0": 0.6184289455413818,
+      "mu": 0.2301754504442215,
+      "kappa": 1.0,
+      "alpha": 0.25,
+      "n_patches": 378,
+      "load_seconds": 0.6567573547363281
+    },
+    "11426009": {
+      "dropout_rate": 0.2,
+      "R0": 1.0126985311508179,
+      "mu": 0.2871035039424896,
+      "kappa": 1.0,
+      "alpha": 0.2504502832889557,
+      "n_patches": 378,
+      "load_seconds": 0.2511584758758545
+    }
+  },
+  "mc_dropout_trained": {
+    "elapsed_seconds": 0.4261198043823242,
+    "per_sample_seconds": 0.02130599021911621,
+    "std_across_samples": 0.9247308373451233,
+    "identical_samples": false
+  },
+  "mc_dropout_untrained": {
+    "all_open": {
+      "elapsed_seconds": 0.16774511337280273,
+      "std_across_samples": 14.312171936035156,
+      "mean_across_samples": 17592.447265625
+    },
+    "all_closed": {
+      "elapsed_seconds": 0.14853310585021973,
+      "std_across_samples": 7.167473793029785,
+      "mean_across_samples": 17499.091796875
+    }
+  },
+  "stepwise_vs_batched": {
+    "stepwise_elapsed_seconds": 0.1177668571472168,
+    "batched_elapsed_seconds": 0.0024645328521728516,
+    "speedup_factor": 47.78465705717326,
+    "max_abs_diff_stepwise_vs_batched": 0.1171875,
+    "identical": false
+  },
+  "attack_rate_direction": {
+    "all_open": {
+      "England": -2.9428173797889757e-06,
+      "Scotland": -0.00013209545695491552,
+      "Wales": -3.476457851784076e-05
+    },
+    "all_closed": {
+      "England": 3.994460464616158e-05,
+      "Scotland": 0.0008169680260007576,
+      "Wales": 0.00026328686851387627
+    },
+    "budgeted_6wk": {
+      "England": -0.00012299467510400077,
+      "Scotland": -0.0003852390738928201,
+      "Wales": 5.141240485032788e-05
+    }
+  }
+}
