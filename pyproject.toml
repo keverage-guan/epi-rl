@@ -22,4 +22,4 @@ dependencies = [
 ]
 
 [tool.setuptools]
-packages = ["epcontrol", "epcontrol.census", "epcontrol.compartments", "epcontrol.compartments.contacts"]
+packages = ["epcontrol", "epcontrol.census", "epcontrol.compartments", "epcontrol.compartments.contacts", "pinn_seir"]
