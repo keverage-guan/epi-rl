@@ -495,11 +495,12 @@ class PINNTrainer:
 
         l_phys = self.loss_physics(schedules)
         l_junc = self.loss_junction(schedules)
-        if self.has_dev:
-            last_logs = dict(last_logs)
-            last_logs["best_iter"] = self.best_iter
-            last_logs["best_dev_data"] = self.best_dev
-            last_logs.update({f"best_{k}": v for k, v in self.best_dev_logs.items()})
+        l_phys = self.loss_physics(schedules)
+        l_junc = self.loss_junction(schedules)
+        if self.tcfg.w_data == 0.0:
+            l_data = torch.zeros((), device=self.device, dtype=self.dtype)
+        else:
+            l_data = self.loss_data()
         l_ic = self.loss_ic()
 
         loss = (

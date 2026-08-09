@@ -76,6 +76,8 @@ class EpiData:
     y_obs: np.ndarray                    # (R, n_weeks) observed weekly ILI rate per 100k
     obs_week_index: np.ndarray           # (n_weeks,) integer week indices with data (0-based)
     nation_population: np.ndarray        # (R,) total population per nation (all ages)
+    y_obs_dev: Optional[np.ndarray] = None          # (R, n_obs_dev)
+    obs_week_index_dev: Optional[np.ndarray] = None # (n_obs_dev,)
 
     @property
     def n_patches(self) -> int:
@@ -159,9 +161,7 @@ def load_epi_data(cfg: ModelConfig) -> EpiData:
     district_nations = [nation_of[d] for d in district_names]
 
     nation_population = membership @ census.sum(axis=1)  # (R,) total pop per nation
-    y_obs_dev: Optional[np.ndarray] = None          # (R, n_obs_dev)
-    obs_week_index_dev: Optional[np.ndarray] = None # (n_obs_dev,)
-
+    
     # ---- seed district ---------------------------------------------------- #
     if cfg.seed_district not in p_index:
         raise ValueError(
