@@ -11,14 +11,14 @@ Usage
 -----
 Weekly incidence fan chart (default):
     python -m pinn_seir.plot_mc_trajectories \
-        --checkpoint outputs/seir_pinn/11911711/checkpoint.pt \
+        --checkpoint outputs/seir_pinn/11977080/checkpoint.pt \
         --census     data/great_brittain/census.csv \
         --commute    data/great_brittain/commute.csv \
         --crosswalk  data/great_brittain/crosswalk.tsv \
         --contacts   data/contacts \
         --flu        data/epidemic/uk_flu_per_100000.csv \
         --n-samples  20 \
-        --out        outputs/seir_pinn/11911711 --dates
+        --out        outputs/seir_pinn/11977080 --dates
 
 Daily incidence instead of weekly:
     ... --daily --samples-per-day 2
@@ -39,10 +39,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from .config import ModelConfig, TrainConfig
-from .data import load_epi_data
+from .data import load_epi_data, load_flu_series
 from .model import PINNTrainer
 
-from .plot_utils import mark_switches
+from .plot_utils import mark_switches, _SPLIT_STYLE
 
 _COMPARTMENT_NAMES = ["S", "E", "I (symptomatic)", "A (asymptomatic)", "R"]
 
@@ -55,6 +55,15 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--crosswalk", type=Path, default=ModelConfig.crosswalk_path)
     p.add_argument("--contacts", type=Path, default=ModelConfig.contacts_dir)
     p.add_argument("--flu", type=Path, default=ModelConfig.flu_path)
+    p.add_argument("--flu-dev", type=Path, default=None)
+    p.add_argument("--flu-test", type=Path, default=None)
+    p.add_argument("--holidays", type=Path, default=ModelConfig.holidays_path)
+    p.add_argument("--no-historical-holidays", action="store_true",
+                   help="must match how the checkpoint was trained (params.json)")
+    p.add_argument("--epidemic-start", default=ModelConfig.epidemic_start)
+    p.add_argument("--regime-switch-date", default=ModelConfig.regime_switch_date)
+    p.add_argument("--no-regime-switch", dest="regime_switch_date",
+                   action="store_const", const=None)
     p.add_argument("--n-weeks", type=int, default=ModelConfig.n_weeks)
     p.add_argument("--seed-district", type=str, default=ModelConfig.seed_district)
     p.add_argument("--device", type=str, default="cpu")
@@ -84,7 +93,7 @@ def _week_to_date(epidemic_start: str, week_float: np.ndarray) -> list:
 
 
 def _plot_fan(
-    ax, x, samples_r, obs_x=None, obs_y=None, percentile_pairs=None,
+    ax, x, samples_r, obs_splits=None, percentile_pairs=None,
     n_spaghetti=0, ylabel="", title="", rng=None, mcfg=None, use_dates=False,
 ):
     """samples_r: (n_samples, n_x) array for one nation."""
@@ -109,8 +118,17 @@ def _plot_fan(
         for j in idx:
             ax.plot(x, samples_r[j], color="C0", lw=0.5, alpha=0.35, zorder=2)
 
-    if obs_x is not None:
-        ax.scatter(obs_x, obs_y, s=18, color="k", label="observed", zorder=4)
+    if obs_splits:
+        for name, (xs, ys, weeks) in obs_splits.items():
+            cov = ""
+            if weeks is not None and len(percentile_pairs or []):
+                lo_q, hi_q = percentile_pairs[0]          # outermost band
+                lo = np.percentile(samples_r, lo_q, axis=0)[weeks]
+                hi = np.percentile(samples_r, hi_q, axis=0)[weeks]
+                inside = np.mean((ys >= lo) & (ys <= hi))
+                cov = f" — {inside:.0%} in band"
+            ax.scatter(xs, ys, label=f"observed ({name}){cov}",
+                       **_SPLIT_STYLE[name])
 
     ax.set_title(title)
     ax.set_ylabel(ylabel)
@@ -140,8 +158,12 @@ def main() -> None:
         crosswalk_path=args.crosswalk,
         contacts_dir=args.contacts,
         flu_path=args.flu,
+        holidays_path=args.holidays,
+        no_holidays=args.no_historical_holidays,
         n_weeks=args.n_weeks,
         seed_district=args.seed_district,
+        epidemic_start=args.epidemic_start,
+        regime_switch_date=args.regime_switch_date,
     )
     tcfg = TrainConfig(device=args.device)
 
@@ -210,19 +232,30 @@ def main() -> None:
                 x = _week_to_date(mcfg.epidemic_start, x)
                 xlabel = "date"
 
-            obs = data.y_obs
-            obs_x = data.obs_week_index.astype(float)
-            if args.dates:
-                obs_x = _week_to_date(mcfg.epidemic_start, obs_x)
+            obs_splits_raw = {"train": (data.y_obs, data.obs_week_index)}
+            for name, path in (("dev", args.flu_dev), ("test", args.flu_test)):
+                if path is not None:
+                    obs_splits_raw[name] = load_flu_series(
+                        mcfg, data.nation_names, path=path
+                    )
 
             n_nations = data.n_nations
             fig, axes = plt.subplots(1, n_nations, figsize=(5.5 * n_nations, 4.5), sharex=True)
             if n_nations == 1:
                 axes = [axes]
             for r, ax in enumerate(axes):
+                obs_splits = {
+                    name: (
+                        _week_to_date(mcfg.epidemic_start, weeks.astype(float))
+                        if args.dates else weeks.astype(float),
+                        y[r],
+                        None if args.daily else weeks,   # band lookup is weekly-indexed
+                    )
+                    for name, (y, weeks) in obs_splits_raw.items()
+                }
                 _plot_fan(
                     ax, x, samples[:, r, :],
-                    obs_x=obs_x, obs_y=obs[r, : len(data.obs_week_index)],
+                    obs_splits=obs_splits,
                     percentile_pairs=percentile_pairs,
                     n_spaghetti=args.n_spaghetti,
                     ylabel="ILI per 100k" + (" / day" if args.daily else " / week"),

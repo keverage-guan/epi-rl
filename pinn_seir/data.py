@@ -177,13 +177,7 @@ def load_epi_data(cfg: ModelConfig) -> EpiData:
         y_obs_dev, obs_week_index_dev = _load_flu_series(
             cfg, nation_names, path=cfg.flu_dev_path
         )
-        overlap = set(obs_week_index.tolist()) & set(obs_week_index_dev.tolist())
-        if overlap:
-            raise ValueError(
-                f"Train and dev flu files share model weeks {sorted(overlap)}. "
-                "The dev metric would be measured on fitted observations. Check "
-                "that both files came from the same split_epidemic_data.py run."
-            )
+        assert_disjoint_weeks({"train": obs_week_index, "dev": obs_week_index_dev})
 
     return EpiData(
         district_names=district_names,
@@ -274,3 +268,22 @@ def _load_flu_series(
     # Sort by model week so the series is monotonic (data may be out of order).
     order = np.argsort(week_index, kind="stable")
     return y[:, order], week_index[order]
+
+def assert_disjoint_weeks(by_split: Dict[str, np.ndarray]) -> None:
+    """Raise if any two splits claim the same model week.
+
+    Any overlap means a held-out metric is being measured on fitted observations.
+    Checks all pairs, so it stays correct once test is added alongside dev.
+    """
+    names = list(by_split)
+    for i, a in enumerate(names):
+        for b in names[i + 1:]:
+            shared = sorted(set(by_split[a].tolist()) & set(by_split[b].tolist()))
+            if shared:
+                raise ValueError(
+                    f"{a} and {b} flu files share model weeks {shared}. Check that "
+                    "both came from the same split_epidemic_data.py run."
+                )
+
+# Public alias: the plot/eval scripts need to load a split without rebuilding EpiData.
+load_flu_series = _load_flu_series

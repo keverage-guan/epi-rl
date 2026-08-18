@@ -39,3 +39,11 @@ def mark_switches(ax, mcfg, use_dates: bool = False, label: bool = True) -> None
             x, color="red", ls="--", lw=1.2, alpha=0.9, zorder=4,
             label=f"regime switch ({d})" if (label and i == 0) else None,
         )
+
+_SPLIT_STYLE = {
+    "train": dict(marker="o", s=24, c="k", zorder=3),
+    "dev":   dict(marker="o", s=42, facecolors="none", edgecolors="C1",
+                  linewidths=1.6, zorder=4),
+    "test":  dict(marker="s", s=42, facecolors="none", edgecolors="C3",
+                  linewidths=1.6, zorder=4),
+}

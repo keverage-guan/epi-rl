@@ -13,14 +13,14 @@ it was).
 Usage
 -----
     python -m pinn_seir.plot_fit \
-        --checkpoint outputs/seir_pinn/11911711/checkpoint.pt \
+        --checkpoint outputs/seir_pinn/11977080/checkpoint.pt \
         --census     data/great_brittain/census.csv \
         --commute    data/great_brittain/commute.csv \
         --crosswalk  data/great_brittain/crosswalk.tsv \
         --contacts   data/contacts \
         --flu        data/epidemic/uk_flu_per_100000.csv \
         --holidays   data/great_brittain/school_holidays.csv \
-        --out        outputs/seir_pinn/11911711 \
+        --out        outputs/seir_pinn/11977080 \
         --dates
 """
 
@@ -36,11 +36,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from .config import ModelConfig, TrainConfig
-from .data import load_epi_data
+from .data import load_epi_data, load_flu_series
 from .model import PINNTrainer
 from .schedules import holiday_week_spans
 
-from .plot_utils import mark_switches
+from .plot_utils import mark_switches, _SPLIT_STYLE
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(allow_abbrev=False, description=__doc__)
@@ -50,12 +50,22 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--crosswalk", type=Path, default=ModelConfig.crosswalk_path)
     p.add_argument("--contacts", type=Path, default=ModelConfig.contacts_dir)
     p.add_argument("--flu", type=Path, default=ModelConfig.flu_path)
+    p.add_argument("--flu-dev", type=Path, default=None,
+                   help="dev split CSV; plotted as open circles, not fit against")
+    p.add_argument("--flu-test", type=Path, default=None,
+                   help="test split CSV; plotted as open squares. Only pass this "
+                        "once model selection is finished.")
     p.add_argument("--holidays", type=Path, default=ModelConfig.holidays_path,
                    help="per-nation school-holiday CSV (see pinn_seir/holidays.py)")
     p.add_argument("--no-historical-holidays", action="store_true",
                    help="rebuild the MODEL with no school calendar; use this when the "
                         "checkpoint was trained with fit_pinn's same flag. Distinct "
                         "from --no-holidays, which only affects the shading.")
+    p.add_argument("--epidemic-start", default=ModelConfig.epidemic_start)
+    p.add_argument("--regime-switch-date", default=ModelConfig.regime_switch_date,
+                   help="must match the checkpoint; mark_switches reads this")
+    p.add_argument("--no-regime-switch", dest="regime_switch_date",
+                   action="store_const", const=None)
     p.add_argument("--n-weeks", type=int, default=ModelConfig.n_weeks)
     p.add_argument("--seed-district", type=str, default=ModelConfig.seed_district)
     p.add_argument("--device", type=str, default="cpu")
@@ -81,6 +91,8 @@ def main() -> None:
         no_holidays=args.no_historical_holidays,
         n_weeks=args.n_weeks,
         seed_district=args.seed_district,
+        epidemic_start=args.epidemic_start,
+        regime_switch_date=args.regime_switch_date,
     )
     tcfg = TrainConfig(device=args.device)
 
@@ -98,14 +110,34 @@ def main() -> None:
         samples_per_day=args.samples_per_day
     )                                            # t_days in week units, pred_daily (R, n_days)
     obs = data.y_obs                             # (R, n_obs) weekly rate per 100k
-    obs_weeks = data.obs_week_index             # (n_obs,) model-week index per observation
+    obs_weeks = data.obs_week_index              # (n_obs,) model-week index per observation
 
-    _plot(data, t_days, pred_daily, obs, obs_weeks, mcfg, args)
+    # Held-out splits: loaded for display and scoring only, never fit.
+    splits = {"train": (obs, obs_weeks)}
+    for name, path in (("dev", args.flu_dev), ("test", args.flu_test)):
+        if path is not None:
+            splits[name] = load_flu_series(mcfg, data.nation_names, path=path)
+            print(f"  {name}: {splits[name][0].shape[1]} weeks from {path}")
+
+    _report_rmse(trainer, data, splits)
+    _plot(data, t_days, pred_daily, splits, mcfg, args)
 
 
 def _week_to_date(week_idx, epidemic_start: str):
     start = datetime.strptime(epidemic_start, "%Y-%m-%d").date()
     return [start + timedelta(days=7 * float(k)) for k in week_idx]
+
+
+def _report_rmse(trainer, data, splits) -> None:
+    """Per-split, per-nation RMSE in per-100k units, printed alongside the figure."""
+    pred = trainer.predict_nation_incidence()          # (R, n_weeks)
+    print("\n            overall " + " ".join(f"{n[:8]:>9}" for n in data.nation_names))
+    for name, (y, weeks) in splits.items():
+        err2 = (pred[:, weeks] - y) ** 2
+        per_nation = " ".join(f"{np.sqrt(err2[r].mean()):9.2f}"
+                              for r in range(data.n_nations))
+        print(f"  {name:<7} {np.sqrt(err2.mean()):8.2f} {per_nation}")
+    print()
 
 
 def _shade_holidays(ax, mcfg, use_dates: bool, nation: str) -> None:
@@ -131,7 +163,7 @@ def _shade_holidays(ax, mcfg, use_dates: bool, nation: str) -> None:
         )
 
 
-def _plot(data, t_days, pred_daily, obs, obs_weeks, mcfg, args) -> None:
+def _plot(data, t_days, pred_daily, splits, mcfg, args) -> None:
     R = data.n_nations
     dpw = float(mcfg.days_per_week)
 
@@ -157,7 +189,9 @@ def _plot(data, t_days, pred_daily, obs, obs_weeks, mcfg, args) -> None:
             _shade_holidays(ax, mcfg, args.dates, data.nation_names[r])
         ax.plot(x_pred, pred_weekly_equiv[r], lw=1.5, color="C0",
                 label="PINN (daily)")
-        ax.scatter(x_obs, obs[r], s=22, color="k", zorder=3, label="observed ILI (weekly)")
+        for name, (y, weeks) in splits.items():
+            xs = _week_to_date(weeks, mcfg.epidemic_start) if args.dates else weeks
+            ax.scatter(xs, y[r], label=f"observed ({name})", **_SPLIT_STYLE[name])
         mark_switches(ax, mcfg, use_dates=args.dates)
         ax.set_title(data.nation_names[r])
         ax.set_xlabel(xlabel)

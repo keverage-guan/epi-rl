@@ -148,11 +148,13 @@ class PINNTrainer:
             self.calendar.table, dtype=self.dtype, device=self.device
         )
 
-        if self.has_dev:
-            term_frac = self.calendar_table.mean(dim=2)          # (P, n_weeks)
-            memb = self.membership                                # (R, P)
-            per_nation = (memb @ term_frac) / memb.sum(dim=1, keepdim=True)
-            self._week_is_holiday = (per_nation < 0.5)            # (R, n_weeks)
+        # Per-nation holiday mask over model weeks, used by every held-out metric
+        # (dev now, test later). Derived from the daily calendar, NOT from the
+        # is_holiday column in the split files, so the two can be cross-checked.
+        term_frac = self.calendar_table.mean(dim=2)              # (P, n_weeks)
+        memb = self.membership                                    # (R, P)
+        per_nation = (memb @ term_frac) / memb.sum(dim=1, keepdim=True)
+        self._week_is_holiday = (per_nation < 0.5)                # (R, n_weeks)
 
         # ---- regime switch (containment -> treatment) --------------------- #
         if mcfg.regime_switch_date is None:
@@ -428,11 +430,13 @@ class PINNTrainer:
         return ((pred_obs - self.y_obs) ** 2).mean() / self._data_scale
 
     @torch.no_grad()
-    def evaluate_dev(self) -> Dict[str, float]:
-        """Held-out metrics on the dev observations. Toggles dropout off and back.
+    def evaluate_on(
+        self, y_obs, week_index, prefix: str = "dev"
+    ) -> Dict[str, float]:
+        """Held-out metrics on any observation set. Toggles dropout off and back.
 
-        `dev_data` uses the same normalisation as the training data loss, so the
-        two curves are directly comparable. `dev_rmse` is in per-100k units and is
+        `<prefix>_data` uses the same normalisation as the training data loss, so the
+        two curves are directly comparable. `<prefix>_rmse` is in per-100k units and is
         independent of _data_scale, so it stays comparable across runs that pinned
         different scales.
         """
@@ -440,31 +444,34 @@ class PINNTrainer:
         self.net.eval()
         try:
             pred = self._predict_nation_weekly()
-            pred_obs = pred[:, self.obs_week_index_dev]          # (R, n_dev)
-            err2 = (pred_obs - self.y_obs_dev) ** 2
+            pred_obs = pred[:, week_index]                        # (R, n_obs)
+            err2 = (pred_obs - y_obs) ** 2
 
             out = {
-                "dev_data": float(err2.mean() / self._data_scale),
-                "dev_rmse": float(err2.mean().sqrt()),
+                f"{prefix}_data": float(err2.mean() / self._data_scale),
+                f"{prefix}_rmse": float(err2.mean().sqrt()),
             }
 
             # Per-nation, so one nation blowing up is visible.
             for r, name in enumerate(self.data.nation_names):
-                out[f"dev_rmse_{name.lower()}"] = float(err2[r].mean().sqrt())
+                out[f"{prefix}_rmse_{name.lower()}"] = float(err2[r].mean().sqrt())
 
-            # Holiday / term-time breakdown. With ~2 holiday weeks in dev, a single
-            # bad week dominates the aggregate; always read these two together.
-            hol = self._week_is_holiday[:, self.obs_week_index_dev]   # (R, n_dev)
+            # Holiday / term-time breakdown. With ~2 holiday weeks in a 15% slice, a
+            # single bad week dominates the aggregate; always read these two together.
+            hol = self._week_is_holiday[:, week_index]            # (R, n_obs)
             for label, mask in (("holiday", hol), ("term", ~hol)):
                 n = int(mask.sum())
-                out[f"dev_rmse_{label}"] = (
+                out[f"{prefix}_rmse_{label}"] = (
                     float(err2[mask].mean().sqrt()) if n else float("nan")
                 )
-                out[f"dev_n_{label}"] = n
+                out[f"{prefix}_n_{label}"] = n
             return out
         finally:
             if was_training:
                 self.net.train()
+
+    def evaluate_dev(self) -> Dict[str, float]:
+        return self.evaluate_on(self.y_obs_dev, self.obs_week_index_dev, "dev")
 
     def loss_ic(self) -> torch.Tensor:
         """Week-1 (index 0) initial condition at tau=0 under the true (all-open) policy."""
@@ -573,7 +580,9 @@ class PINNTrainer:
                 if self.has_dev:
                     dev = self.evaluate_dev()
                     dev_str = (f"dev={dev['dev_data']:.3e} "
-                               f"dev_rmse={dev['dev_rmse']:.3e} ")
+                               f"dev_rmse={dev['dev_rmse']:.3e} "
+                               f"dev_rmse_hol={dev['dev_rmse_holiday']:.3e} "
+                               f"dev_rmse_term={dev['dev_rmse_term']:.3e} ")
                     if dev["dev_data"] < self.best_dev:
                         self.best_dev = dev["dev_data"]
                         self.best_iter = it
@@ -605,6 +614,20 @@ class PINNTrainer:
         if self.tcfg.lbfgs_iters > 0:
             self._polish_lbfgs(params)
             _, last_logs = self.total_loss()
+            # The polish runs after the Adam loop and was never dev-checked, so
+            # checkpoint.pt could be worse than checkpoint_best.pt. Check once.
+            if self.has_dev:
+                dev = self.evaluate_dev()
+                tqdm.write(
+                    f"[post-LBFGS] dev={dev['dev_data']:.4e} "
+                    f"(best during Adam {self.best_dev:.4e} @ {self.best_iter})"
+                )
+                if dev["dev_data"] < self.best_dev:
+                    self.best_dev = dev["dev_data"]
+                    self.best_iter = -1          # -1 = post-polish
+                    self.best_dev_logs = dict(dev)
+                    if best_checkpoint_path is not None:
+                        self.save(best_checkpoint_path)
 
         # Resting state after training is deterministic: dropout OFF. MC samplers turn
         # it back on temporarily via net.mc_dropout(); plain predictors stay stochastic-

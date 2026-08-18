@@ -10,7 +10,7 @@ trajectories.
 
 Usage
 -----
-    python -m pinn_seir.plot_loss --log logs/seir_pinn_11911711.out --out outputs/seir_pinn/11911711
+    python -m pinn_seir.plot_loss --log logs/seir_pinn_11977080.out --out outputs/seir_pinn/11977080
 """
 
 from __future__ import annotations
@@ -32,7 +32,9 @@ _LINE = re.compile(
     r"junc=(?P<junc>[-\d.eE+]+)\s+"
     r"data=(?P<data>[-\d.eE+]+)\s+"
     r"ic=(?P<ic>[-\d.eE+]+)\s*"
-    r"(?:dev=(?P<dev>[-\d.eE+]+)\s+dev_rmse=(?P<dev_rmse>[-\d.eE+]+)\s*)?"
+    r"(?:dev=(?P<dev>[-\d.eE+]+)\s+dev_rmse=(?P<dev_rmse>[-\d.eE+]+)"
+    r"(?:\s+dev_rmse_hol=(?P<dev_rmse_hol>[-\d.eE+]+)"
+    r"\s+dev_rmse_term=(?P<dev_rmse_term>[-\d.eE+]+))?\s*)?"
     r"\|\s*"
     r"R0=(?P<R0>[-\d.eE+]+)\s+"
     r"mu=(?P<mu>[-\d.eE+]+)\s+"
@@ -44,6 +46,7 @@ _LINE = re.compile(
 )
 
 _FIELDS = ["it", "loss", "phys", "junc", "data", "ic", "dev", "dev_rmse",
+           "dev_rmse_hol", "dev_rmse_term",
            "R0", "mu", "kappa", "alpha", "R0_post", "gamma", "gamma_post"]
 
 def parse_log(path: Path) -> dict:
@@ -67,7 +70,11 @@ def parse_log(path: Path) -> dict:
 
 def plot_losses(data: dict, out_path: Path) -> None:
     it = data["it"]
-    fig, (ax_loss, ax_par) = plt.subplots(1, 2, figsize=(14, 5))
+    has_strata = ("dev_rmse_hol" in data
+                  and not np.all(np.isnan(data["dev_rmse_hol"])))
+    ncols = 3 if has_strata else 2
+    fig, axes = plt.subplots(1, ncols, figsize=(7 * ncols, 5))
+    ax_loss, ax_par = axes[0], axes[1]
 
     for key, label in [
         ("loss", "total"),
@@ -99,11 +106,22 @@ def plot_losses(data: dict, out_path: Path) -> None:
         if key in data and not np.all(np.isnan(data[key])):
             ax_par.plot(it, data[key], label=key, lw=1.5, ls=style)
     ax_par.set_xlabel("Adam iteration")
-    ax_par.set_xlabel("Adam iteration")
     ax_par.set_ylabel("parameter value")
     ax_par.set_title("Fitted parameters")
     ax_par.legend()
     ax_par.grid(True, alpha=0.3)
+
+    if has_strata:
+        ax_str = axes[2]
+        ax_str.plot(it, data["dev_rmse"], label="dev RMSE (all)", lw=2, color="k")
+        ax_str.plot(it, data["dev_rmse_hol"], label="holiday weeks", lw=1.5, color="C1")
+        ax_str.plot(it, data["dev_rmse_term"], label="term weeks", lw=1.5, color="C0")
+        ax_str.set_yscale("log")
+        ax_str.set_xlabel("Adam iteration")
+        ax_str.set_ylabel("RMSE (per 100k / week)")
+        ax_str.set_title("Dev RMSE by holiday stratum")
+        ax_str.legend()
+        ax_str.grid(True, which="both", alpha=0.3)
 
     fig.tight_layout()
     fig.savefig(out_path, dpi=130)
