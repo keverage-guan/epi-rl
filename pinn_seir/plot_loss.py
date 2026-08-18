@@ -2,7 +2,7 @@
 
 The trainer emits periodic lines of the form:
 
-    [   500] loss=1.4667e-01 phys=3.778e-03 junc=5.518e-03 data=1.349e-01 ic=2.445e-04 | R0=1.743 mu=0.483 kappa=1.000 alpha=0.250 (229s)
+    [   500] loss=1.4667e-01 phys=3.778e-03 junc=5.518e-03 data=1.349e-01 ic=2.445e-04 dev=1.51e-01 dev_rmse=8.12e+00 dev_rmse_hol=1.14e+01 dev_rmse_term=6.90e+00 | R0=1.743 mu=0.483 kappa=1.000 alpha=0.250 (229s)
 
 This script extracts iteration, the four loss components, the total, and the fitted
 parameters, then plots (a) the loss components on a log scale and (b) the parameter
@@ -10,7 +10,7 @@ trajectories.
 
 Usage
 -----
-    python -m pinn_seir.plot_loss --log logs/seir_pinn_11977080.out --out outputs/seir_pinn/11977080
+    python -m pinn_seir.plot_loss --log logs/seir_pinn_12183202.out --out outputs/seir_pinn/12183202
 """
 
 from __future__ import annotations

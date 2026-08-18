@@ -11,14 +11,16 @@ Usage
 -----
 Weekly incidence fan chart (default):
     python -m pinn_seir.plot_mc_trajectories \
-        --checkpoint outputs/seir_pinn/11977080/checkpoint.pt \
+        --checkpoint outputs/seir_pinn/12183202/checkpoint.pt \
         --census     data/great_brittain/census.csv \
         --commute    data/great_brittain/commute.csv \
         --crosswalk  data/great_brittain/crosswalk.tsv \
         --contacts   data/contacts \
-        --flu        data/epidemic/uk_flu_per_100000.csv \
+        --flu        data/epidemic/splits/uk_flu_per_100000_train.csv \
+        --flu-dev    data/epidemic/splits/uk_flu_per_100000_dev.csv \
+        --holidays   data/great_brittain/school_holidays.csv \
         --n-samples  20 \
-        --out        outputs/seir_pinn/11977080 --dates
+        --out        outputs/seir_pinn/12183202 --dates
 
 Daily incidence instead of weekly:
     ... --daily --samples-per-day 2

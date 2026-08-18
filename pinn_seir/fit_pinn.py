@@ -7,7 +7,8 @@ Example
         --commute       data/great_brittain/commute.csv \
         --crosswalk     data/great_brittain/crosswalk.tsv \
         --contacts      data/contacts \
-        --flu           data/epidemic/uk_flu_per_100000.csv \
+        --flu           data/epidemic/splits/uk_flu_per_100000_train.csv \
+        --flu-dev       data/epidemic/splits/uk_flu_per_100000_dev.csv \
         --holidays      data/great_brittain/school_holidays.csv \
         --adam-iters    5000 \
         --out           /tmp/seir_pinn

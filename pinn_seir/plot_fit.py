@@ -13,14 +13,15 @@ it was).
 Usage
 -----
     python -m pinn_seir.plot_fit \
-        --checkpoint outputs/seir_pinn/11977080/checkpoint.pt \
+        --checkpoint outputs/seir_pinn/12183202/checkpoint.pt \
         --census     data/great_brittain/census.csv \
         --commute    data/great_brittain/commute.csv \
         --crosswalk  data/great_brittain/crosswalk.tsv \
         --contacts   data/contacts \
-        --flu        data/epidemic/uk_flu_per_100000.csv \
+        --flu        data/epidemic/splits/uk_flu_per_100000_train.csv \
+        --flu-dev    data/epidemic/splits/uk_flu_per_100000_dev.csv \
         --holidays   data/great_brittain/school_holidays.csv \
-        --out        outputs/seir_pinn/11977080 \
+        --out        outputs/seir_pinn/12183202 \
         --dates
 """
 
@@ -173,11 +174,9 @@ def _plot(data, t_days, pred_daily, splits, mcfg, args) -> None:
 
     if args.dates:
         x_pred = _week_to_date(t_days, mcfg.epidemic_start)
-        x_obs = _week_to_date(obs_weeks, mcfg.epidemic_start)
         xlabel = "date"
     else:
         x_pred = t_days
-        x_obs = obs_weeks
         xlabel = "model week"
 
     fig, axes = plt.subplots(1, R, figsize=(6 * R, 4.5), sharex=True)

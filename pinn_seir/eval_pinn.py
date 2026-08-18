@@ -7,11 +7,10 @@ checkpoint was trained (params.json records both).
 Usage
 -----
     python -m pinn_seir.eval_pinn \
-        --checkpoint outputs/seir_pinn/11911711/checkpoint_best.pt \
+        --checkpoint outputs/seir_pinn/12183202/checkpoint_best.pt \
         --flu        data/epidemic/splits/uk_flu_per_100000_train.csv \
         --flu-eval   data/epidemic/splits/uk_flu_per_100000_test.csv \
-        --data-scale 1234.5 \
-        --out        outputs/seir_pinn/11911711
+        --out        outputs/seir_pinn/12183202
 """
 
 from __future__ import annotations
